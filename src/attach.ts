@@ -12,6 +12,7 @@ import {
 import {
   type BlockInsert,
   type Buffer,
+  CTRL_R,
   CTRL_V,
   clamp,
   type Effect,
@@ -94,6 +95,8 @@ export function attach(
   const render = target.render.bind(editor);
   let state: State = initial;
   let seen = "";
+  // The text as the last undo or redo left it.
+  let undone = "";
   let seenText = "";
   let pasting = false;
   // The change being typed in INSERT mode, entered from NORMAL or Visual
@@ -127,13 +130,22 @@ export function attach(
   const run = (effects: readonly Effect[]) => {
     for (const effect of effects) {
       if (effect.kind === "move") port.setCursor(effect.to);
-      if (effect.kind === "replace")
+      if (effect.kind === "replace") {
         port.replace(effect.from, effect.to, effect.text, effect.cursor);
+        port.clearRedo();
+      }
       if (effect.kind === "yank") {
         shared.register = effect.register;
         if (effect.copy) shared.copy(effect.register.text);
       }
-      if (effect.kind === "undo") port.undo();
+      if (effect.kind === "undo" || effect.kind === "redo") {
+        // An edit since the last undo or redo ends what can be redone;
+        // moving the cursor doesn't.
+        if (port.read().lines.join("\n") !== undone) port.clearRedo();
+        if (effect.kind === "undo") port.undo();
+        else if (!port.redo()) shared.notify("Nothing to redo.", "info");
+        undone = port.read().lines.join("\n");
+      }
       if (effect.kind === "repeat") repeat();
       if (effect.kind === "message") shared.notify(effect.text, "info");
       if (effect.kind === "quit") {
@@ -266,7 +278,15 @@ export function attach(
   // Pass input to Pi; a prompt going from text to empty was submitted.
   const forward = (data: string, buf: Buffer) => {
     const before = buf.lines.join("\n");
+    const pastes = [...(buf.pastes ?? [])].join();
     passthrough(data);
+    // Pi edited (typing, paste, history, Ctrl-K, submit): nothing to redo.
+    const after = port.read();
+    if (
+      after.lines.join("\n") !== before ||
+      [...(after.pastes ?? [])].join() !== pastes
+    )
+      port.clearRedo();
     // Pi's own undo went below the change's start: restart it from here.
     if (open && port.undoDepth() < open.depth) {
       open = { depth: port.undoDepth(), buf: port.read() };
@@ -283,6 +303,7 @@ export function attach(
         data.lastIndexOf(PASTE_START) > data.lastIndexOf(PASTE_END) ||
         (pasting && !data.includes(PASTE_END));
       passthrough(data);
+      port.clearRedo();
       if (state.mode === "replace") restart();
       return;
     }
@@ -332,6 +353,11 @@ export function attach(
     // Ctrl-V starts Visual block mode instead of pasting an image.
     if (matchesKey(data, "ctrl+v")) {
       perform(CTRL_V);
+      return settle();
+    }
+    // Ctrl-R redoes in NORMAL mode.
+    if (matchesKey(data, "ctrl+r") && state.mode === "normal") {
+      perform(CTRL_R);
       return settle();
     }
     if (

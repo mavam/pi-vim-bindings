@@ -11,7 +11,12 @@ export type Port = {
   setCursor(pos: Pos): void;
   /** Replace a range as one undo step. */
   replace(from: Pos, to: Pos, text: string, cursor: Pos): void;
+  /** Undo, keeping what it undid for `redo()`. */
   undo(): void;
+  /** Redo the last undo; false if there's nothing to redo. */
+  redo(): boolean;
+  /** Forget what can be redone, e.g. after another edit. */
+  clearRedo(): void;
   /** Number of undo steps on Pi's undo stack. */
   undoDepth(): number;
   /** Merge all undo steps after `depth + 1` into that one step. */
@@ -37,6 +42,7 @@ type Segment = { logicalLine: number; startCol: number; length: number };
 type Internals = {
   state: { lines: string[]; cursorLine: number; cursorCol: number };
   pastes: Map<number, string>;
+  pasteCounter: number;
   lastAction: unknown;
   undoStack: { length: number; pop(): unknown; push(state: unknown): void };
   jumpMode?: unknown;
@@ -74,6 +80,7 @@ export function portFor(editor: object): Port | undefined {
     typeof state.cursorLine === "number" &&
     typeof state.cursorCol === "number" &&
     e.pastes instanceof Map &&
+    typeof e.pasteCounter === "number" &&
     "lastAction" in e &&
     typeof e.undoStack?.length === "number" &&
     typeof e.undoStack.pop === "function" &&
@@ -102,6 +109,18 @@ export function portFor(editor: object): Port | undefined {
           return { padding, rows };
         }
       : undefined;
+  // Pi's editor has no redo: keep the state each undo replaced.
+  type Snapshot = {
+    lines: string[];
+    pastes: Map<number, string>;
+    pasteCounter: number;
+  };
+  const redos: Snapshot[] = [];
+  const snapshot = (): Snapshot => ({
+    lines: [...e.state.lines],
+    pastes: new Map(e.pastes),
+    pasteCounter: e.pasteCounter,
+  });
   const setCursor = (pos: Pos) => {
     e.state.cursorLine = pos.line;
     e.setCursorCol(pos.col);
@@ -126,7 +145,30 @@ export function portFor(editor: object): Port | undefined {
       setCursor(cursor);
       e.onChange?.(e.getText());
     },
-    undo: () => e.undo(),
+    undo() {
+      if (!e.undoStack.length) return;
+      redos.push(snapshot());
+      e.undo();
+    },
+    redo() {
+      const next = redos.pop();
+      if (!next) return false;
+      const before = [...e.state.lines];
+      // Like any edit: the current state becomes one undo step.
+      e.cancelAutocomplete();
+      e.pushUndoSnapshot();
+      e.exitHistoryBrowsing();
+      e.state.lines = next.lines;
+      e.pastes = next.pastes;
+      e.pasteCounter = next.pasteCounter;
+      // Vim puts the cursor where the redone change starts.
+      setCursor(firstDifference(before, next.lines));
+      e.onChange?.(e.getText());
+      return true;
+    },
+    clearRedo: () => {
+      redos.length = 0;
+    },
     undoDepth: () => e.undoStack.length,
     collapseUndo(depth) {
       // The snapshot at `depth` holds the state before the whole change;
@@ -140,4 +182,18 @@ export function portFor(editor: object): Port | undefined {
     },
     layout,
   };
+}
+
+/** Where `after` first differs from `before`, as a position in `after`. */
+function firstDifference(before: string[], after: string[]): Pos {
+  for (let line = 0; line < after.length; line++) {
+    const a = before[line] ?? "";
+    const b = after[line];
+    if (a === b && line < before.length) continue;
+    let col = 0;
+    while (col < b.length && a[col] === b[col]) col++;
+    return { line, col: Math.min(col, b.length) };
+  }
+  const line = after.length - 1;
+  return { line, col: after[line].length };
 }

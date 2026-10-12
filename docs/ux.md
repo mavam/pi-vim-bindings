@@ -39,7 +39,8 @@ Esc Esc from INSERT aborts a running agent.
 
 Exceptions in NORMAL: `Ctrl-]` (Pi's jump-to-char) does nothing, `Ctrl-V`
 starts Visual block mode instead of Pi's image paste (which still works in
-INSERT mode), and a Pi action bound to a bare printable key is shadowed by Vim.
+INSERT mode), `Ctrl-R` redoes, and a Pi action bound to a bare printable key is
+shadowed by Vim.
 
 ## 4. NORMAL mode (v0.1)
 
@@ -118,6 +119,7 @@ Any operator whose range touches a paste marker is refused with a notice.
 | `D` / `C` | Delete / change to end of line |
 | `p` / `P` / `{n}p` | Put after / before, `n` times; linewise text goes below / above the line |
 | `u` | Undo one whole change: `ciwfoo<Esc>` or `ihello world<Esc>` is one step |
+| `Ctrl-R` | Redo what `u` undid, with the cursor at the start of the change. Any edit, including typing, a paste, or a submit, forgets what can be redone |
 | `.` | Repeat the last change, including text typed in INSERT mode |
 
 ### Quitting Pi
@@ -203,13 +205,14 @@ Deliberate, to keep the scope small:
 - **Replace mode:** no counts (`3R`) or `gR`. Backspace doesn't remove a line
   break typed in Replace mode, and after an arrow key `.` repeats only what
   was typed after it, overwriting as Replace mode does.
+- **Redo** only redoes what `u` undid, not Pi's own undo (`Ctrl-_`), and
+  takes no count.
 - **Indent** is two spaces. **Clipboard** copies are best effort.
 
 ## 8. Cut from v0.1
 
 Candidates for later, roughly by demand:
 
-- `Ctrl-R` redo
 - Backtick quotes, `b`/`B` bracket aliases, multi-line bracket objects
 
 Not planned: cursor shape (pi-vim #55), `jj`/`jk` escape (pi-vim #45).

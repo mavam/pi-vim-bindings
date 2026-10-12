@@ -124,6 +124,28 @@ test("doesn't restore in Replace mode after a paste moved things", () => {
   expect(editor.getText()).toBe("xQQbcd efgh");
 });
 
+test("redoes with Ctrl-R until another edit", () => {
+  const { editor, notes, type } = setup();
+  editor.setText("one two");
+  type("\x1b", "0", "d", "w", "x", "u", "u");
+  expect(editor.getText()).toBe("one two");
+  type("w", "\x12");
+  expect(editor.getText()).toBe("two");
+  type("\x12");
+  expect(editor.getText()).toBe("wo");
+  type("u", "x", "\x12");
+  expect([editor.getText(), notes]).toEqual(["wo", ["Nothing to redo."]]);
+});
+
+test("puts the cursor at the redone change, and forgets it after typing", () => {
+  const { editor, type } = setup();
+  editor.setText("abcdef");
+  type("\x1b", "0", "x", "$", "u", "\x12");
+  expect([editor.getText(), editor.getCursor().col]).toEqual(["bcdef", 0]);
+  type("u", "i", "Z", "\x7f", "\x1b", "\x12");
+  expect(editor.getText()).toBe("abcdef");
+});
+
 test("hands Esc and Enter in NORMAL mode to Pi", () => {
   const { editor, type } = setup();
   let interrupted = false;

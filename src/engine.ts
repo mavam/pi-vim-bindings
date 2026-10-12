@@ -66,6 +66,7 @@ export type Effect =
   | { kind: "yank"; register: Register; copy: boolean }
   | { kind: "mode"; mode: Mode }
   | { kind: "undo" }
+  | { kind: "redo" }
   | { kind: "repeat" }
   /** Quit Pi; without `force`, only if the prompt is empty. */
   | { kind: "quit"; force: boolean }
@@ -81,6 +82,8 @@ export type Result = {
 
 /** The key `press` expects for Ctrl-V. */
 export const CTRL_V = "\x16";
+/** The key `press` expects for Ctrl-R. */
+export const CTRL_R = "\x12";
 const INDENT = "  ";
 
 export const initial: State = { mode: "insert", keys: [] };
@@ -816,7 +819,7 @@ const MOTIONS = new Set("hjklwbeWBE0^$G;,%");
 const COUNTED = new Set("hjklwbeWBEG;,fFtTg");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
-const EDITS = new Set("iaIAoOxXsSDCYJpPu.~R");
+const EDITS = new Set([..."iaIAoOxXsSDCYJpPu.~R", CTRL_R]);
 const COUNTED_EDITS = new Set("xXsJpP~");
 const CHANGES = new Set([
   "R",
@@ -1121,6 +1124,8 @@ function edit(
       );
     case "u":
       return [{ kind: "undo" }];
+    case CTRL_R:
+      return [{ kind: "redo" }];
     case "R":
       return [{ kind: "mode", mode: "replace" }];
     case ".":

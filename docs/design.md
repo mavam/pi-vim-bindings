@@ -20,7 +20,7 @@ License: MIT
 
 **Non-goals (v0.1)**
 
-Redo, macros, search, registers beyond one unnamed register,
+Macros, search, registers beyond one unnamed register,
 reading the OS clipboard, Ex commands beyond quitting, cursor shape, settings
 beyond the indicator position, remapping, a
 `/vim` command, and decorating overlay editors that other extensions create.
@@ -202,7 +202,9 @@ interface Port {
   autocompleteOpen(): boolean;       // isShowingAutocomplete() — public
   setCursor(pos: Pos): void;         // private: state + setCursorCol()
   replace(from: Pos, to: Pos, text: string, cursor: Pos): void;
-  undo(): void;                      // private: undo()
+  undo(): void;                      // private: undo(), plus a redo snapshot
+  redo(): boolean;                   // private: pushUndoSnapshot(), state
+  clearRedo(): void;
   undoDepth(): number;               // private: undoStack.length
   collapseUndo(depth: number): void; // private: undoStack.pop()
   closeAutocomplete(): void;         // private: cancelAutocomplete()
@@ -232,6 +234,14 @@ Rules:
   decorator compares the editor with what it saw after its last key. A moved
   cursor drops a pending command; changed text also ends Visual mode, so a
   selection never points past the buffer.
+- **Redo.** Pi's editor has no redo, so the port keeps one per editor:
+  `undo()` snapshots the lines and paste registry (`pastes`, `pasteCounter`)
+  before calling Pi's undo, and `redo()` pushes the current state onto Pi's
+  undo stack, so `u` can undo the redo, then restores the snapshot with the
+  cursor at the first difference, where Vim puts it. The decorator forgets the
+  redo stack on every edit: its own `replace` effects, any Pi key or paste
+  that changes the text or paste registry, and text that changed from outside
+  between two undos or redos. Cursor moves keep it.
 - **Pi's undo inside a change.** If Pi's own undo drops the stack below the
   depth where the open change started, the change restarts from there and
   isn't repeatable with `.`.
