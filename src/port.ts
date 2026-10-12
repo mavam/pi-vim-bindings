@@ -24,6 +24,8 @@ export type Port = {
   autocompleteOpen(): boolean;
   /** The content of each pasted block, by id. */
   pastes(): ReadonlyMap<number, string>;
+  /** Register `content` as a new pasted block; its marker, as Pi writes it. */
+  paste(content: string): string;
   closeAutocomplete(): void;
   /** End Pi's pending character jump (`Ctrl-]`), if any. */
   cancelJump(): void;
@@ -179,6 +181,15 @@ export function portFor(editor: object): Port | undefined {
     },
     autocompleteOpen: () => e.isShowingAutocomplete(),
     pastes: () => new Map(e.pastes),
+    paste(content) {
+      e.pasteCounter++;
+      const id = e.pasteCounter;
+      e.pastes.set(id, content);
+      const lines = content.split("\n").length;
+      return lines > 10
+        ? `[paste #${id} +${lines} lines]`
+        : `[paste #${id} ${content.length} chars]`;
+    },
     closeAutocomplete: () => e.cancelAutocomplete(),
     cancelJump: () => {
       if ("jumpMode" in e) e.jumpMode = null;

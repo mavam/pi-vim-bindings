@@ -44,10 +44,11 @@ shadowed by Vim.
 
 ## 4. NORMAL mode (v0.1)
 
-Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; ,`, on
+Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
-deletes six words), on `x`, `X`, `s`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on
-text objects or `%`.
+deletes six words), on word objects (`2diw`, `d3aW`), and on `x`, `X`, `s`,
+`S`, `C`, `D`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on quote or bracket
+objects or `%`.
 
 ### Enter INSERT
 
@@ -179,16 +180,19 @@ or a session in INSERT or REPLACE mode with what you typed in it. It's one
 undo step.
 
 - **Counts:** `{n}.` replaces the change's own count, so `d3w` then `2.` is
-  `d2w`. For changes without a count, like `i`, `a`, `o`, or `R`, it repeats
-  the typed text `n` times; `o` and `O` open `n` lines.
+  `d2w`, and the next `.` keeps it. For `i`, `a`, `I`, `A`, `o`, `O`, and `R`,
+  it repeats what you typed `n` times; `o` and `O` open `n` lines. Visual
+  changes ignore the count, as in Vim.
 - **INSERT mode:** `.` repeats what the session did where it started: the
   text left there and what Backspace or Delete removed around it, including
   text from before you started. A cursor move in INSERT mode, with arrows or
-  a click, starts over from there, as in Vim, so `.` repeats only what you
-  typed after it. Pasted blocks are repeated with their content.
+  a click, starts over from there, as in Vim, and `u` undoes the parts
+  separately. `.` then repeats what you typed after the move, or before it if
+  nothing followed. Pasted blocks are pasted again as new pasted blocks.
 - **Visual changes** are repeated on a selection of the same size that starts
-  at the cursor: as many characters on one line, as many lines, or a block as
-  wide and tall, as in Vim. Block `I` and `A` insert on every line again.
+  at the cursor: as many characters on one line, as many lines ending in the
+  same display column, or a block as wide and tall, even where lines are
+  shorter, as in Vim. Block `I` and `A` insert on every line again.
 - **`"+p`** reads the system clipboard again.
 
 ## 7. Registers and the system clipboard
@@ -237,9 +241,14 @@ How `"+p` treats the clipboard:
 
 Deliberate, to keep the scope small:
 
-- **Counts:** `2dd` works, `d2d` and `2d$` don't. A count on an operator needs
-  a motion that takes counts (`d3w`, `2y3j`). No counts on text objects, `%`,
-  or `.`. `{n}dd` on the last line does nothing, as in Vim.
+- **Counts:** `2dd` works, `d2d` doesn't. A count on an operator needs a
+  motion or object that takes counts (`d3w`, `2y3j`, `2diw`). No counts on
+  quote or bracket objects or `%`. `{n}dd` on the last line does nothing, as
+  in Vim.
+- **`.` after Pi's own editing keys:** `.` repeats what an INSERT session
+  changed, not the keys. So `Ctrl-W` or `Ctrl-U` repeat as deleting the same
+  number of characters, and browsing Pi's prompt history during INSERT
+  repeats as typing that text.
 - **`j` / `k`** keep the display column of the line you leave, without Vim's
   sticky column.
 - **Text objects** stay on the current line. Bracket objects need the cursor

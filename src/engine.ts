@@ -46,6 +46,8 @@ export type State = {
   anchor?: Pos;
   /** Visual block `$`: the block extends to the end of every line. */
   dollar?: boolean;
+  /** A block's display columns, when `.` reselects one regardless of lines. */
+  columns?: { left: number; right: number };
 };
 /**
  * Visual block `I`, `A`, or `c`: once INSERT mode ends, the typed text goes
@@ -359,53 +361,65 @@ export function countable(keys: readonly string[]): boolean {
 
 /**
  * What an INSERT session did, relative to where it started: how many
- * characters it deleted before and after that spot, and the text it left.
+ * characters (graphemes) it deleted before and after that spot, and the text
+ * it left there.
  */
 export type Typed = { back: number; forward: number; text: string };
 
+/** Grapheme boundaries of a buffer's text, and the index of the cursor. */
+function graphemes(buf: Buffer): { parts: string[]; at: number } {
+  const parts: string[] = [];
+  let at = 0;
+  buf.lines.forEach((line, n) => {
+    if (n > 0) parts.push("\n");
+    if (n === buf.cursor.line) at = parts.length;
+    for (const span of clusters(line, buf.pastes)) {
+      if (n === buf.cursor.line && span.start < buf.cursor.col)
+        at = parts.length + 1;
+      parts.push(line.slice(span.start, span.end));
+    }
+  });
+  return { parts, at };
+}
+
+/**
+ * Compare the editor where INSERT started with where it ended. The edit must
+ * contain both cursors, which keeps Backspace and Delete apart even among
+ * repeated characters.
+ */
 export function typed(before: Buffer, after: Buffer): Typed {
-  const old = before.lines.join("\n");
-  const now = after.lines.join("\n");
-  const offset = offsetOf(before.lines, before.cursor);
-  // The common prefix ends at the start spot at the latest, and the common
-  // suffix starts there at the earliest, so typing at that spot stays typing.
+  const old = graphemes(before);
+  const now = graphemes(after);
+  const a = old.parts;
+  const b = now.parts;
   let prefix = 0;
-  while (prefix < Math.min(offset, now.length) && old[prefix] === now[prefix])
-    prefix++;
+  const most = Math.min(old.at, now.at);
+  while (prefix < most && a[prefix] === b[prefix]) prefix++;
   let suffix = 0;
-  const most = Math.min(old.length - offset, now.length - prefix);
-  while (
-    suffix < most &&
-    old[old.length - 1 - suffix] === now[now.length - 1 - suffix]
-  )
+  const tail = Math.min(a.length - old.at, b.length - now.at);
+  while (suffix < tail && a[a.length - 1 - suffix] === b[b.length - 1 - suffix])
     suffix++;
   return {
-    back: offset - prefix,
-    forward: old.length - suffix - offset,
-    text: now.slice(prefix, now.length - suffix),
+    back: old.at - prefix,
+    forward: a.length - suffix - old.at,
+    text: b.slice(prefix, b.length - suffix).join(""),
   };
 }
 
-/** Do what an INSERT session did again at the cursor, `times` times. */
-export function retype(buf: Buffer, edit: Typed, times = 1): Effect[] {
-  const total = buf.lines.join("\n").length;
-  const offset = offsetOf(buf.lines, buf.cursor);
-  const start = Math.max(0, offset - edit.back);
-  const end = Math.min(total, offset + edit.forward);
+/** Do what an INSERT session did again at the cursor. */
+export function retype(buf: Buffer, edit: Typed): Effect[] {
+  const { parts, at } = graphemes(buf);
+  const offset = (index: number) => parts.slice(0, index).join("").length;
+  const start = offset(Math.max(0, at - edit.back));
+  const end = offset(Math.min(parts.length, at + edit.forward));
   const from = posOf(buf.lines, start);
   const to = posOf(buf.lines, end);
   if (end > start && touches(buf, { from, to, linewise: false }))
     return [{ kind: "refuse" }];
-  const text = edit.text.repeat(times);
-  if (!text && end === start) return [];
-  const cursor = posOf(splice(buf.lines, from, to, text), start + text.length);
-  return [{ kind: "replace", from, to, text, cursor }];
-}
-
-function offsetOf(lines: readonly string[], pos: Pos): number {
-  let offset = pos.col;
-  for (let n = 0; n < pos.line; n++) offset += lines[n].length + 1;
-  return offset;
+  if (!edit.text && end === start) return [];
+  const after = splice(buf.lines, from, to, edit.text);
+  const cursor = posOf(after, start + edit.text.length);
+  return [{ kind: "replace", from, to, text: edit.text, cursor }];
 }
 
 function posOf(lines: readonly string[], offset: number): Pos {
@@ -423,7 +437,7 @@ export type Extent = {
   lines: number;
   /** Characters on a one-line charwise selection, block width otherwise. */
   width: number;
-  /** End column of a multi-line charwise selection. */
+  /** End display column of a multi-line charwise selection. */
   col: number;
   dollar?: boolean;
 };
@@ -444,12 +458,13 @@ export function extent(state: State, buf: Buffer): Extent | undefined {
     };
   }
   const text = buf.lines[range.from.line].slice(range.from.col, range.to.col);
-  const width = lines === 1 ? Math.max(1, clusters(text).length) : 0;
+  const width =
+    lines === 1 ? Math.max(1, clusters(text, buf.pastes).length) : 0;
   const end = clamp(buf, {
     line: range.to.line,
     col: Math.max(0, range.to.col - 1),
   });
-  return { mode: state.mode, lines, width, col: end.col };
+  return { mode: state.mode, lines, width, col: vcolOf(buf, end).v };
 }
 
 /** Select an extent again, starting at the cursor, the way Vim's `.` does. */
@@ -468,12 +483,20 @@ export function reselect(
   if (extent.mode === "vline")
     return { state, cursor: { line, col: cursor.col } };
   if (extent.mode === "vblock") {
-    const v = vcolOf(buf, cursor).v + Math.max(1, extent.width) - 1;
-    const col = colAt(buf, line, v);
-    return { state, cursor: clamp(buf, { line, col }) };
+    // The block keeps its columns even where lines are shorter.
+    const left = vcolOf(buf, cursor).v;
+    const columns = { left, right: left + Math.max(1, extent.width) };
+    const end = clamp(buf, {
+      line,
+      col: covering(buf, line, columns.right - 1),
+    });
+    return { state: { ...state, columns }, cursor: end };
   }
   if (extent.lines > 1)
-    return { state, cursor: clamp(buf, { line, col: extent.col }) };
+    return {
+      state,
+      cursor: clamp(buf, { line, col: covering(buf, line, extent.col) }),
+    };
   const spans = clusters(lines[cursor.line], buf.pastes);
   const ci = clusterIndex(spans, cursor.col);
   const end = spans[Math.min(spans.length - 1, ci + extent.width - 1)];
@@ -680,18 +703,32 @@ function colAt(buf: Buffer, line: number, v: number): number {
   return c ? c.start : buf.lines[line].length;
 }
 
+/** Column of the cluster covering display column `v`, or the line end. */
+function covering(buf: Buffer, line: number, v: number): number {
+  const c = columns(buf, buf.lines[line]).find((col) => v < col.v + col.w);
+  return c ? c.start : buf.lines[line].length;
+}
+
 function blockBounds(state: State, buf: Buffer) {
   const anchor = fit(buf, state.anchor ?? buf.cursor);
   const { cursor } = buf;
   const a = vcolOf(buf, anchor);
   const c = vcolOf(buf, cursor);
+  const top = Math.min(anchor.line, cursor.line);
+  const bottom = Math.max(anchor.line, cursor.line);
+  const dollar = state.dollar ? Number.POSITIVE_INFINITY : undefined;
+  if (state.columns)
+    return {
+      top,
+      bottom,
+      ...state.columns,
+      right: dollar ?? state.columns.right,
+    };
   return {
-    top: Math.min(anchor.line, cursor.line),
-    bottom: Math.max(anchor.line, cursor.line),
+    top,
+    bottom,
     left: Math.min(a.v, c.v),
-    right: state.dollar
-      ? Number.POSITIVE_INFINITY
-      : Math.max(a.v + a.w, c.v + c.w),
+    right: dollar ?? Math.max(a.v + a.w, c.v + c.w),
   };
 }
 
@@ -1081,11 +1118,11 @@ export function apply(buf: Buffer, effects: readonly Effect[]): Buffer {
 
 const MAX_COUNT = 9999;
 const MOTIONS = new Set("hjklwbeWBE0^$G;,%");
-const COUNTED = new Set("hjklwbeWBEG;,fFtTg");
+const COUNTED = new Set("hjklwbeWBEG;,fFtTg$");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
 const EDITS = new Set([..."iaIAoOxXsSDCYJpPu.~R", CTRL_R]);
-const COUNTED_EDITS = new Set("xXsJpP~.r");
+const COUNTED_EDITS = new Set("xXsSCDJpP~.r");
 const CHANGES = new Set([
   "R",
   "X",
@@ -1122,7 +1159,7 @@ type Motion = {
 };
 type Target =
   | Motion
-  | { kind: "object"; around: boolean; object: string }
+  | { kind: "object"; around: boolean; object: string; count?: number }
   | { kind: "line"; count?: number };
 type Command =
   | Motion
@@ -1171,15 +1208,22 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
     if (m === undefined && keys[i] === op.at(-1)) {
       return { kind: "op", op, target: { kind: "line", count: n } };
     }
-    if (n === undefined && m === undefined && /^[ia]$/.test(keys[i])) {
+    if (/^[ia]$/.test(keys[i])) {
       const around = keys[i++] === "a";
       if (i >= keys.length) return "pending";
       const object = keys[i++];
       if (!OBJECTS.has(object)) return "invalid";
+      // Only word objects take counts: `2diw`, `d3aW`.
+      const total =
+        n === undefined && m === undefined
+          ? undefined
+          : Math.min((n ?? 1) * (m ?? 1), MAX_COUNT);
+      if (total !== undefined && object !== "w" && object !== "W")
+        return "invalid";
       return {
         kind: "op",
         op,
-        target: { kind: "object", around, object },
+        target: { kind: "object", around, object, count: total },
       };
     }
     // Counts multiply: `2d3w` deletes six words.
@@ -1254,7 +1298,7 @@ function execute(
       linewise: true,
     };
   } else if (target.kind === "object") {
-    range = objectRange(buf, target.around, target.object);
+    range = objectRange(buf, target.around, target.object, target.count);
   } else if (op === "c" && /^[wW]$/.test(target.key)) {
     range = changeWord(buf, target);
   } else {
@@ -1298,6 +1342,14 @@ function edit(
     const to = here(spans[last].end);
     return { from: here(spans[ci].start), to, linewise: false };
   };
+  const wholeLines = (count = 1): Range => ({
+    from: here(0),
+    to: {
+      line: Math.min(buf.lines.length - 1, cursor.line + count - 1),
+      col: 0,
+    },
+    linewise: true,
+  });
   const wholeLine = (): Range => ({
     from: here(0),
     to: here(0),
@@ -1356,7 +1408,7 @@ function edit(
       return range ? operate("c", range, buf) : insert(cursor.col);
     }
     case "S":
-      return operate("c", wholeLine(), buf);
+      return operate("c", wholeLines(command.count), buf);
     case "Y":
       return operate("y", wholeLine(), buf);
     case "r": {
@@ -1374,7 +1426,13 @@ function edit(
     }
     case "D":
     case "C": {
-      const range = { from: cursor, to: here(line.length), linewise: false };
+      // `{n}D`: to the end of the line and n - 1 more lines, as in Vim.
+      const n = command.count ?? 1;
+      const last = Math.min(buf.lines.length - 1, cursor.line + n - 1);
+      if (n > 1 && last === cursor.line && cursor.line === buf.lines.length - 1)
+        return [];
+      const to = { line: last, col: buf.lines[last].length };
+      const range = { from: cursor, to, linewise: false };
       return operate(command.key === "D" ? "d" : "c", range, buf);
     }
     case "J":
@@ -1445,8 +1503,22 @@ function join(buf: Buffer, count: number): Effect[] {
 }
 
 function operate(op: Op, range: Range, buf: Buffer): Effect[] {
-  const { from, to, linewise } = range;
   const { lines } = buf;
+  // Vim: a multi-line charwise delete from the indent to a line's end
+  // deletes whole lines, so `2D` at the start of a line removes two lines.
+  if (
+    op === "d" &&
+    !range.linewise &&
+    range.from.line < range.to.line &&
+    !lines[range.from.line].slice(0, range.from.col).trim() &&
+    range.to.col === lines[range.to.line].length
+  )
+    range = {
+      from: { line: range.from.line, col: 0 },
+      to: { line: range.to.line, col: 0 },
+      linewise: true,
+    };
+  const { from, to, linewise } = range;
   if (!linewise && from.line === to.line && from.col === to.col)
     return op === "c"
       ? [
@@ -1765,8 +1837,16 @@ function resolve(
       return { to: here(0), kind: "exclusive" };
     case "^":
       return { to: here(firstNonBlank(line)), kind: "exclusive" };
-    case "$":
-      return { to: here(spans.at(-1)?.start ?? 0), kind: "inclusive" };
+    case "$": {
+      // `{n}$` ends on the line n - 1 below, as in Vim, and fails past the
+      // last line.
+      const target = cursor.line + n - 1;
+      if (target >= lines.length) return undefined;
+      if (target === cursor.line)
+        return { to: here(spans.at(-1)?.start ?? 0), kind: "inclusive" };
+      const end = clusters(lines[target], buf.pastes).at(-1);
+      return { to: { line: target, col: end?.start ?? 0 }, kind: "inclusive" };
+    }
     case "gg":
     case "G": {
       const target =
@@ -1850,6 +1930,7 @@ function objectRange(
   buf: Buffer,
   around: boolean,
   object: string,
+  count = 1,
 ): Range | undefined {
   const { cursor, lines } = buf;
   const line = lines[cursor.line];
@@ -1882,6 +1963,12 @@ function objectRange(
       } else if (s > 0 && cls(s - 1) === 0) {
         s = run(s - 1, -1);
       }
+    }
+    // Each further count adds a run: for `iw` the next word or blank run,
+    // for `aw` the next word with the blanks after it.
+    for (let k = 1; k < count && e + 1 < spans.length; k++) {
+      e = run(e + 1, 1);
+      if (around && e + 1 < spans.length && cls(e + 1) === 0) e = run(e + 1, 1);
     }
     return range(spans[s].start, spans[e].end);
   }

@@ -42,7 +42,7 @@ import {
   untype,
 } from "./engine.js";
 import { type Layout, portFor } from "./port.js";
-import { expand, markers } from "./text.js";
+import { markers, remark } from "./text.js";
 
 /** State shared by all decorated editors of one extension instance. */
 export type Shared = {
@@ -121,6 +121,8 @@ export function attach(
     count?: number;
     visual?: Extent;
     typed?: Typed;
+    /** Content of the pasted blocks in `typed`, by id. */
+    pasted?: ReadonlyMap<number, string>;
     actions?: (string | null)[];
   };
   // The change being typed in INSERT or REPLACE mode, entered from NORMAL or
@@ -133,6 +135,8 @@ export function attach(
         buf: Buffer;
         at: Buffer;
         block?: BlockInsert;
+        /** The change before a cursor move, in case nothing follows it. */
+        done?: Change;
       }
     | undefined;
   // Replace mode: what each typed character overwrote, for Backspace; the
@@ -240,21 +244,38 @@ export function attach(
       shared.notify("Pasted blocks aren't copied to the other lines.", "info");
     if (open.change && state.mode === "replace")
       last = { ...open.change, actions: [...actions] };
-    else if (open.change) {
-      // Repeat pasted blocks with their content, not their markers.
-      const edit = typed(open.buf, now);
-      last = {
-        ...open.change,
-        typed: { ...edit, text: expand(edit.text, port.pastes()) },
-      };
-    }
+    else if (open.change)
+      last = segment(open.change, open.buf, now, !!open.done) ?? open.done;
     if (port.undoDepth() > open.depth) port.collapseUndo(open.depth);
     open = undefined;
     return copied;
   };
 
+  // What INSERT mode did from `from` to `to`, or undefined if nothing.
+  // An `optional` segment, typed after a cursor move, is undefined if it
+  // did nothing.
+  const segment = (
+    change: Change,
+    from: Buffer,
+    to: Buffer,
+    optional = false,
+  ) => {
+    const edit = typed(from, to);
+    if (optional && !edit.back && !edit.forward && !edit.text) return undefined;
+    // Keep pasted blocks' content, so `.` pastes them again as new blocks.
+    const pastes = port.pastes();
+    const pasted = new Map<number, string>();
+    remark(edit.text, (id, marker) => {
+      const content = pastes.get(id);
+      if (content !== undefined) pasted.set(id, content);
+      return marker;
+    });
+    return { ...change, typed: edit, pasted };
+  };
+
   // In INSERT mode, a cursor move without an edit (arrows, a click) starts
-  // the change over from there, as in Vim; `.` then repeats only the rest.
+  // the change over from there, as in Vim; `.` then repeats what was typed
+  // after the move, or before it if nothing was.
   const rebase = (buf: Buffer) => {
     if (!open || state.mode !== "insert") return;
     const { at } = open;
@@ -262,27 +283,33 @@ export function attach(
     const moved =
       buf.cursor.line !== at.cursor.line || buf.cursor.col !== at.cursor.col;
     if (same && moved) {
-      open = { ...open, buf, block: undefined };
+      // Vim also starts a new undo step there.
+      if (port.undoDepth() > open.depth + 1) port.collapseUndo(open.depth);
+      open.depth = port.undoDepth();
+      const done =
+        (open.change && segment(open.change, open.buf, at, !!open.done)) ??
+        open.done;
+      open = { ...open, buf, block: undefined, done };
       if (open.change) open.change = { keys: ["i"] };
     }
     open.at = buf;
   };
 
-  // `.`: run the last change again. A count replaces its own count; for
-  // commands without counts, like `i`, `o`, and `R`, it repeats the text.
+  // `.`: run the last change again. A count replaces its own count and
+  // sticks for the next `.`; for commands without counts, like `i`, `o`,
+  // and `R`, it repeats what was typed. Visual changes ignore counts.
   const repeat = (count?: number) => {
     const change = last;
     if (!change) return;
     const depth = port.undoDepth();
+    const n = change.visual ? undefined : (count ?? change.count);
     const counted = !change.visual && countable(change.keys);
-    const n = count ?? change.count;
     const keys =
       counted && n !== undefined ? [...String(n), ...change.keys] : change.keys;
-    const times = count !== undefined && !counted ? count : 1;
-    const opens = change.keys[0] === "o" || change.keys[0] === "O";
-    for (let k = 0; k < (opens ? times : 1); k++)
-      replay(change, keys, opens ? 1 : times);
-    last = change;
+    // Only commands that just start typing repeat their text n times.
+    const typesText = /^[iaIAoOR]$/.test(change.keys[0] ?? "");
+    replay(change, keys, !counted && typesText ? (n ?? 1) : 1);
+    last = { ...change, count: n };
     if (port.undoDepth() > depth) port.collapseUndo(depth);
   };
 
@@ -290,7 +317,7 @@ export function attach(
     if (change.visual) {
       const { state: selected, cursor } = reselect(change.visual, port.read());
       port.setCursor(cursor);
-      state = selected;
+      state = { ...selected, find: state.find };
     }
     for (const key of keys) perform(key);
     const started = open;
@@ -300,7 +327,19 @@ export function attach(
         for (const action of change.actions ?? [])
           action === null ? backspace() : overtypeKey(action);
     } else if (state.mode === "insert" && change.typed) {
-      run(retype(port.read(), change.typed, times));
+      // Pasted blocks come back as new pasted blocks, never as live markers.
+      const fresh = () =>
+        remark(change.typed?.text ?? "", (id, marker) => {
+          const content = change.pasted?.get(id);
+          return content === undefined ? marker : port.paste(content);
+        });
+      // `o` and `O` with a count open one line per copy of the text.
+      if (change.keys[0] === "o" || change.keys[0] === "O") {
+        const text = Array.from({ length: times }, fresh).join("\n");
+        run(retype(port.read(), { ...change.typed, text }));
+      } else
+        for (let k = 0; k < times; k++)
+          run(retype(port.read(), { ...change.typed, text: fresh() }));
       const { back, forward, text } = change.typed;
       if (started?.block && !back && !forward && text && !text.includes("\n")) {
         run(replicate(started.block, text, port.read()));
@@ -424,9 +463,12 @@ export function attach(
       pasting =
         data.lastIndexOf(PASTE_START) > data.lastIndexOf(PASTE_END) ||
         (pasting && !data.includes(PASTE_END));
+      // A click before the paste still starts the INSERT change over.
+      if (state.mode === "insert") rebase(port.read());
       passthrough(data);
       port.clearRedo();
       if (state.mode === "replace") restart();
+      if (state.mode === "insert" && open) open.at = port.read();
       return;
     }
     const buf = port.read();
@@ -435,6 +477,8 @@ export function attach(
       // Pi's character jump would otherwise catch the next key we pass on.
       port.cancelJump();
       if (typing() && port.autocompleteOpen()) return port.closeAutocomplete();
+      // A click just before Esc still ends the INSERT change there.
+      if (state.mode === "insert") rebase(buf);
       const result = esc(state, buf);
       if (result.passthrough) passthrough("\x1b");
       else if (!(typing() && close())) run(result.effects);

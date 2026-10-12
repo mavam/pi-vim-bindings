@@ -210,13 +210,39 @@ test("runs queued clipboard puts in order, and drops stale ones", async () => {
   expect(editor.getText()).toBe("a12bc");
 });
 
-test("repeats Visual changes on a selection of the same size", () => {
+// `.` cases checked against Neovim; `|` is the cursor in the initial text.
+const keyCodes: Record<string, string> = {
+  "<Esc>": "\x1b",
+  "<BS>": "\x7f",
+  "<Del>": "\x1b[3~",
+  "<Left>": "\x1b[D",
+  "<C-v>": "\x16",
+  "<C-j>": "\n",
+};
+test.each([
+  ["|aaa 😀😀😀", "i<Del>X<Esc>w.", "Xaa X😀😀"],
+  ["|abcdef\nabcdef\nabcdef\nx", "ll<C-v>j$d3G02l.", "ab\nab\nab\nx"],
+  ["|abcdef\nabcdef\n中def\n中def", "<C-v>jld3G0.", "cdef\ncdef\ndef\ndef"],
+  ["aa|aa bbbb cccc", "i<BS><Esc>w.", "aaabbbb cccc"],
+  ["|a b c d e f g h", "dw2..", "f g h"],
+  ["|abcd xyz", "i<Del>X<Esc>w2.", "Xbcd XXz"],
+  ["|one\ntwo\nthree\nfour\nfive", "Sx<Esc>j2.", "x\nx\nfour\nfive"],
+  ["|abc def ghi", "vlcX<Esc>w2.", "Xc Xf ghi"],
+  ["|abc def ghi", "iX<Left><Esc>w.", "Xabc Xdef ghi"],
+  ["|x", "Oa<C-j>b<Esc>G2.", "a\nb\na\nb\na\nb\nx"],
+  ["|aa\n中xyz\nqq\nabcdef", "vjlU2j0.", "AA\n中Xyz\nQQ\nABCdef"],
+  ["|[paste #9] abcdef", "v9ldw.", " "],
+  ["|a,b,c,d,e", "f,lvUl.;x", "a,B,cd,e"],
+  ["|a\nb\nc\nd", "<C-v>jI- <Esc>jj0.", "- a\n- b\n- c\n- d"],
+])("repeats with .: %j + %j", (before, keys, after) => {
   const { editor, type } = setup();
-  editor.setText("abcdefgh\na\nb\nc\nd");
-  type("\x1b", "g", "g", "0", "v", "l", "l", "d", "l", ".");
-  expect(editor.getText().split("\n")[0]).toBe("dh");
-  type("j", "0", "\x16", "j", "I", "-", " ", "\x1b", "j", "j", "0", ".");
-  expect(editor.getText()).toBe("dh\n- a\n- b\n- c\n- d");
+  const lines = before.split("\n");
+  const line = lines.findIndex((l) => l.includes("|"));
+  editor.setText(before.replace("|", ""));
+  type("\x1b", "g", "g", "0", ...Array(line).fill("j"));
+  type(...Array(lines[line].indexOf("|")).fill("l"));
+  type(...(keys.match(/<[^>]+>|./gsu) ?? []).map((k) => keyCodes[k] ?? k));
+  expect(editor.getText()).toBe(after);
 });
 
 test("repeats INSERT edits with their pasted blocks and counts", () => {
@@ -226,6 +252,10 @@ test("repeats INSERT edits with their pasted blocks and counts", () => {
   type("\x1b", "0", "i", paste, "\x1b", "w", "w", "2", ".");
   expect(editor.getExpandedText()).toBe(
     `${"x\n".repeat(12)}a ${"x\n".repeat(24)}b`,
+  );
+  // Repeats paste the block again as new pasted blocks, not live markers.
+  expect(editor.getText()).toBe(
+    "[paste #1 +13 lines]a [paste #2 +13 lines][paste #3 +13 lines]b",
   );
 });
 

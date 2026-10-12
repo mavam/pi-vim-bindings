@@ -210,6 +210,8 @@ interface Port {
   undoDepth(): number;               // private: undoStack.length
   collapseUndo(depth: number): void; // private: undoStack.pop()
   closeAutocomplete(): void;         // private: cancelAutocomplete()
+  pastes(): ReadonlyMap<number, string>; // private: pastes, for `.`
+  paste(content: string): string;    // private: a new pasted block, for `.`
   cancelJump(): void;                // private, optional: jumpMode = null
   layout?(width: number): Layout;    // private, optional: see §6.1
 }
@@ -260,6 +262,8 @@ Rules:
   exists, as Pi validates in `editor.ts:385–392`) as one grapheme. Any operator
   whose range touches a marker is **refused** with a notification. The
   register therefore never holds marker text, and we never expand pastes.
+  `.` repeats a pasted block typed in INSERT mode by registering its content
+  as a new pasted block (`port.paste()`), never by inserting marker text.
 - Never call `setText()` on a buffer with markers: it clears the paste
   registry (`editor.ts:1115–1128`).
 
@@ -377,18 +381,28 @@ are installed.
   left. The session is one change for undo, like INSERT.
 - **Per editor, for `.`:** a `Change`: the keys of the last change without
   their count (the engine's `uncounted()`), the count, and what the keys alone
-  don't say. For a Visual change, the selection's `Extent` (mode, lines, and
-  width or end column), which the engine's `reselect()` turns into a new
-  selection at the cursor. For INSERT mode, a `Typed` edit from the engine's
-  `typed()`: characters deleted before and after where typing started, and
-  the text left there, found as the difference between the editor at the
-  start and at Esc, with paste markers expanded to their content. A cursor
-  move without an edit during INSERT (arrows, a click) starts that over. For
-  REPLACE mode, the session's keys. Replaying runs the keys through the
-  engine, applies the edit with `retype()` or the Replace keys, replicates a
-  block insert, and collapses everything into one undo step. `{n}.` puts `n`
-  in as the count if the command takes one (`countable()`), else repeats the
-  typed text `n` times.
+  don't say.
+  - A Visual change keeps the selection's `Extent`: mode, lines, and a width
+    or end display column. The engine's `reselect()` turns it into a new
+    selection at the cursor; a block keeps its display columns
+    (`State.columns`) even where lines are shorter.
+  - An INSERT session keeps a `Typed` edit from the engine's `typed()`:
+    graphemes deleted before and after where typing started, and the text
+    left there. It's the difference between the editor at the start and at
+    Esc, bounded by both cursors so Backspace and Delete stay apart among
+    repeated characters. Pasted blocks in it keep their content, and replay
+    registers them as new pasted blocks. A cursor move without an edit
+    (arrows, a click, also right before a paste or Esc) closes that segment
+    and its undo step and starts a new one with `i`; an empty last segment
+    falls back to the one before.
+  - A REPLACE session keeps its keys.
+
+  Replaying runs the keys through the engine, applies the edit with
+  `retype()` (once per count for `i`, `a`, `I`, `A`, and `R`; `o` and `O`
+  join the copies into one opened block), replicates a block insert, and
+  collapses everything into one undo step. `{n}.` becomes the count if the
+  command takes one (`countable()`) and sticks for the next `.`; Visual
+  changes ignore it.
 - **Visual block:** columns are display columns. The port passes `pi-tui`'s
   `visibleWidth` as `Buffer.measure`, so they agree with what Pi renders; the
   engine stays pure and falls back to a small wide-character table in
