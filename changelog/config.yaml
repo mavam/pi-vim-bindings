@@ -1,0 +1,5 @@
+id: pi-vim-editor
+name: Pi Vim Editor
+description: >-
+  Minimal Vim-style modal editing for Pi's prompt editor.
+repository: mavam/pi-vim-editor

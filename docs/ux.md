@@ -1,0 +1,226 @@
+# pi-vim-editor — minimal key binding UX
+
+Scope principle: **Vim muscle memory for fixing up a prompt**, not a text
+editor. Prompts are usually 1–20 lines. Everything Pi already does stays with
+Pi. When in doubt, cut.
+
+## 1. Modes
+
+| Mode | Entered by | Bottom-right border label |
+| --- | --- | --- |
+| INSERT (start mode) | Startup, after submit, `i a I A o O c…` | `INSERT`, muted |
+| NORMAL | Esc / `Ctrl-[` from INSERT | `NORMAL`, accent; pending keys replace it (`2d`, `ci`, `f`) |
+| VISUAL / VISUAL LINE / VISUAL BLOCK | `v` / `V` / `Ctrl-V` from NORMAL | `VISUAL` / `VISUAL LINE` / `VISUAL BLOCK`, accent |
+
+No reverse video. The working, compaction, and retry spinners stay in the top
+border, as in stock Pi.
+
+## 2. Esc
+
+| Situation | Esc / `Ctrl-[` does |
+| --- | --- |
+| INSERT, autocomplete open | Close autocomplete; stay in INSERT |
+| INSERT | → NORMAL, cursor one character left |
+| NORMAL, pending command | Cancel it |
+| NORMAL, nothing pending | Pi's interrupt (abort the agent, double-Esc behavior) |
+
+Esc Esc from INSERT aborts a running agent.
+
+## 3. What stays with Pi
+
+- **INSERT:** every key except Esc / `Ctrl-[`.
+- **NORMAL:** Enter (submit), Tab, arrows, Home/End, PageUp/PageDown, all
+  Ctrl/Alt keys (`Ctrl-G` external editor, `Ctrl-C`, model selection,
+  extension shortcuts, …), paste, and mouse. Some of these edit text, such as
+  Tab completion or `Ctrl-Y`; that's intended.
+- **Prompt history:** Pi's own keys (arrows at the buffer edge, or the history
+  actions if bound) in both modes.
+
+Exceptions in NORMAL: `Ctrl-]` (Pi's jump-to-char) does nothing, `Ctrl-V`
+starts Visual block mode instead of Pi's image paste (which still works in
+INSERT mode), and a Pi action bound to a bare printable key is shadowed by Vim.
+
+## 4. NORMAL mode (v0.1)
+
+Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; ,`, on
+`{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
+deletes six words), and on `x`, `X`, `s`, `J`, `~`, `p`, and `P`. Not on text
+objects, `%`, or `.`.
+
+### Enter INSERT
+
+| Key | Action |
+| --- | --- |
+| `i` / `a` | Before / after cursor |
+| `I` / `A` | First non-blank / end of line |
+| `o` / `O` | Open line below / above |
+
+### Motions
+
+| Key | Motion |
+| --- | --- |
+| `h` `l` | Character left / right, within the line |
+| `j` `k` | Line down / up; no-op at the last / first line; never history |
+| `w` `b` `e` | Next word start / previous word start / word end, across lines |
+| `W` `B` `E` | Same for WORDs (whitespace-delimited) |
+| `ge` `gE` | Back to the end of the previous word / WORD |
+| `0` `^` `$` | Line start / first non-blank / last character |
+| `gg` `G` `{n}G` | First line / last line / line n |
+| `%` | From the first bracket at or after the cursor on the line, to its partner, across lines |
+| `f{c}` `F{c}` `t{c}` `T{c}` | To / till character on the line |
+| `;` `,` | Repeat the last `f F t T` / in reverse |
+
+Paste markers (`[paste #1 +24 lines]`) count as one character.
+
+### Operators
+
+`d` delete · `c` change (delete, then INSERT) · `y` yank · `gu` lowercase ·
+`gU` uppercase.
+
+| Form | Example |
+| --- | --- |
+| Operator + motion | `dw`, `c$`, `d2w`, `dt,`, `y3j`, `dG` (`j k gg G` are linewise) |
+| Doubled = whole line | `dd`, `cc`, `yy`, `guu`, `gUU` |
+| Word / WORD object | `diw`, `caw`, `ciW`, `daW` |
+| Quote object, same line | `ci"`, `da'` |
+| Bracket object, same line | `ci(`, `da[`, `yi{`; the closing bracket works too (`ci)`) |
+
+Any operator whose range touches a paste marker is refused with a notice.
+
+### Single-key edits
+
+| Key | Action |
+| --- | --- |
+| `x` / `{n}x` | Delete character(s) under cursor |
+| `X` / `{n}X` | Delete character(s) before the cursor |
+| `~` / `{n}~` | Toggle the case of character(s) and move right |
+| `s` / `{n}s` | Substitute character(s): delete, then INSERT |
+| `S` | Substitute the line (= `cc`) |
+| `Y` | Yank the line (= `yy`) |
+| `J` / `{n}J` | Join with the next line(s), one space between |
+| `>>` / `<<` / `{n}>>` | Indent / outdent line(s) by two spaces |
+| `r{c}` | Replace character |
+| `D` / `C` | Delete / change to end of line |
+| `p` / `P` / `{n}p` | Put after / before, `n` times; linewise text goes below / above the line |
+| `u` | Undo one whole change: `ciwfoo<Esc>` or `ihello world<Esc>` is one step |
+| `.` | Repeat the last change, including text typed in INSERT mode |
+
+### Quitting Pi
+
+| Keys | Action |
+| --- | --- |
+| `ZZ`, `:q`, `:qa` | Quit Pi if the prompt is empty; otherwise show a notice |
+| `ZQ`, `:q!`, `:qa!` | Quit Pi, dropping the prompt |
+
+`:` shows the command in the border as you type it. Enter runs it, Backspace
+edits it, and Esc cancels. Other commands report that they're not supported.
+
+## 5. Visual mode
+
+`v` selects characters, `V` whole lines, `Ctrl-V` a block (the same columns on
+several lines). The selection runs from where you started to the cursor,
+inclusive, and shows in reverse video. Every NORMAL motion moves the cursor,
+with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
+
+| Key | Action |
+| --- | --- |
+| `v` / `V` / `Ctrl-V` | Switch between charwise, linewise, and block; the same key again leaves |
+| `o` | Jump to the other end of the selection |
+| `O` | Block: jump to the other corner on the same line; otherwise like `o` |
+| `iw` `aw` `iW` `aW` `i"` `a(` … | Select a text object (charwise) |
+| `d` / `x` | Delete the selection |
+| `c` / `s` | Change the selection: delete, then INSERT |
+| `y` | Yank the selection; also goes to the system clipboard |
+| `p` / `P` | Replace the selection with the register; the replaced text goes into the register (not in block mode) |
+| `r{c}` | Replace every selected character with `c` |
+| `J` | Join the selected lines |
+| `~` / `u` / `U` | Toggle case / lowercase / uppercase the selection |
+| `>` / `<` | Indent / outdent the selected lines by two spaces |
+| Esc | Leave without changing anything |
+
+Block mode adds:
+
+| Key | Action |
+| --- | --- |
+| `$` | Extend the block to the end of every line |
+| `I` | Insert before the block on every line; lines shorter than the block are skipped |
+| `A` | Append after the block on every line; short lines are padded with spaces. After `$`, append at each line's end |
+| `c` / `s` | Change the block: delete it, then type the new text for every line |
+
+Text typed with block `I`, `A`, or `c` goes to the other lines when you press
+Esc, and only if it's a single line. A yanked or deleted block puts back as a
+block: `p` / `P` insert it column by column, starting at the cursor.
+
+Block columns are display columns, so wide characters count twice. `u` undoes
+any Visual change in one step. `.` doesn't repeat Visual changes.
+
+## 6. Register
+
+One unnamed register inside the extension, plain text plus a linewise flag.
+`d`, `c`, `x`, `s`, `y` write it; `p`/`P` read it. Visual block deletes and
+yanks store a block. It survives submits.
+Yanks (`y`, `Y`) also go to the system clipboard through Pi; deletes and
+changes don't. `p`/`P` always read the internal register. Pi's own kill ring
+(`Ctrl-K` / `Ctrl-Y`) works independently.
+
+## 7. Differences from Vim
+
+Deliberate, to keep the scope small:
+
+- **Counts:** `2dd` works, `d2d` and `2d$` don't. A count on an operator needs
+  a motion that takes counts (`d3w`, `2y3j`). No counts on text objects, `%`,
+  or `.`. `{n}dd` on the last line does nothing, as in Vim.
+- **`j` / `k`** keep the display column of the line you leave, without Vim's
+  sticky column.
+- **Text objects** stay on the current line. Bracket objects need the cursor
+  inside the brackets, and `a"` doesn't take the surrounding whitespace.
+- **`%`** also matches brackets inside quotes.
+- **Visual mode:** a charwise selection doesn't include line breaks, so `v$d`
+  keeps the newline. Block `p` / `P` do nothing. Text that changes from
+  outside Vim (Pi's history, another extension, `Ctrl-H`) ends Visual mode.
+- **Words and case:** CJK characters are word characters like letters; `~`,
+  `gu`, and `gU` use JavaScript's Unicode case mapping.
+- **`.`** repeats text typed in INSERT mode only if it was a plain insertion at
+  one spot. Block `I`, `A`, and `c` copy typed text to the other lines only if
+  it's a single line without pasted blocks.
+- **Pasted blocks:** `J`, `>`, and `<` keep them; other edits that touch one
+  are refused.
+- **Indent** is two spaces. **Clipboard** copies are best effort.
+
+## 8. Cut from v0.1
+
+Candidates for later, roughly by demand:
+
+- `Ctrl-R` redo
+- Backtick quotes, `b`/`B` bracket aliases, multi-line bracket objects
+
+Not planned: cursor shape (pi-vim #55), `jj`/`jk` escape (pi-vim #45).
+
+Out of scope: search, `{ }`, named registers, macros, marks, `R`, Ex commands
+beyond quitting, remapping, history on `j`/`k`, `.` for Visual changes, `>`/`<` with
+motions, a configurable indent width.
+
+## 9. Configuration
+
+One setting, in Pi's `settings.json` (global or project):
+
+```json
+{ "vimEditor": { "indicator": "top-left" } }
+```
+
+`indicator` places the mode label: `bottom-right` (default), `bottom-left`,
+`top-right`, or `top-left`. On the top border, the label sits next to Pi's
+working indicator; when a border has no room, the label is left out.
+
+## 10. Decisions
+
+| Question | Decision |
+| --- | --- |
+| Start mode | INSERT |
+| Mode after submit | INSERT, when the prompt is actually submitted (text cleared), not on every Enter |
+| `j`/`k` at buffer edges | No history; line movement only |
+| INSERT label | Shown, muted |
+| `$` | On the last character, as in Vim |
+| Undo granularity | One step per Vim change, from the command that enters INSERT to Esc. Typing in the initial INSERT mode follows Pi's steps |
+| Edits across paste markers | Refused |
+| Passthrough keys that edit in NORMAL | Allowed, except `Ctrl-]` |
