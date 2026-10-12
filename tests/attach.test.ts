@@ -6,11 +6,19 @@ import { keybindings as createKeybindings, theme, tui } from "./fixtures.ts";
 function setup(position: Shared["position"] = "bottom-right") {
   const notes: string[] = [];
   const copies: string[] = [];
+  // What the next clipboard read returns.
+  const clipboard: { next: Awaited<ReturnType<Shared["clipboard"]["read"]>> } =
+    {
+      next: {},
+    };
   let quits = 0;
   const shared: Shared = {
     register: undefined,
     notify: (message) => notes.push(message),
-    copy: (text) => copies.push(text),
+    clipboard: {
+      write: (register) => copies.push(register.text),
+      read: async () => clipboard.next,
+    },
     quit: () => {
       quits++;
     },
@@ -24,7 +32,16 @@ function setup(position: Shared["position"] = "bottom-right") {
     for (const key of keys) editor.handleInput(key);
   };
   const quitted = () => quits;
-  return { editor, keybindings, shared, notes, copies, quitted, type };
+  return {
+    editor,
+    keybindings,
+    shared,
+    notes,
+    copies,
+    clipboard,
+    quitted,
+    type,
+  };
 }
 
 test("edits in NORMAL mode, undoes, and labels the border", () => {
@@ -144,6 +161,50 @@ test("puts the cursor at the redone change, and forgets it after typing", () => 
   expect([editor.getText(), editor.getCursor().col]).toEqual(["bcdef", 0]);
   type("u", "i", "Z", "\x7f", "\x1b", "\x12");
   expect(editor.getText()).toBe("abcdef");
+});
+
+test('puts the system clipboard with "+p unless the prompt changed', async () => {
+  const { editor, copies, clipboard, notes, type } = setup();
+  editor.focused = true;
+  editor.setText("one");
+  type("\x1b", '"', "+", "d", "d");
+  expect(copies).toEqual(["one"]);
+  clipboard.next = { register: { text: "two", linewise: true } };
+  type('"', "+", "2", "p");
+  await Bun.sleep(0);
+  expect(editor.getText()).toBe("\ntwo\ntwo");
+  editor.setText("abc");
+  type("0", '"', "+", "p", "x");
+  await Bun.sleep(0);
+  expect([editor.getText(), notes.at(-1)]).toEqual([
+    "bc",
+    "The prompt changed; not putting the clipboard.",
+  ]);
+});
+
+test("runs queued clipboard puts in order, and drops stale ones", async () => {
+  const { editor, shared, type } = setup();
+  editor.focused = true;
+  editor.setText("abc");
+  // Reads answer one after another, each when its key is released.
+  const reads: ((text: string) => void)[] = [];
+  shared.clipboard.read = () =>
+    new Promise((resolve) =>
+      reads.push((text) => resolve({ register: { text, linewise: false } })),
+    );
+  const answer = async (text: string) => {
+    await Bun.sleep(0);
+    reads.shift()?.(text);
+    await Bun.sleep(0);
+  };
+  type("\x1b", "0", '"', "+", "p", '"', "+", "p");
+  await answer("1");
+  await answer("2");
+  expect(editor.getText()).toBe("a12bc");
+  // Moving away and back still makes a pending put stale.
+  type('"', "+", "p", "l", "h");
+  await answer("3");
+  expect(editor.getText()).toBe("a12bc");
 });
 
 test("hands Esc and Enter in NORMAL mode to Pi", () => {

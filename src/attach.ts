@@ -9,6 +9,7 @@ import {
   matchesKey,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import type { Clipboard } from "./clipboard.js";
 import {
   type BlockInsert,
   type Buffer,
@@ -24,6 +25,7 @@ import {
   label,
   overtype,
   press,
+  putText,
   type Register,
   replicate,
   type State,
@@ -37,8 +39,8 @@ import { markers } from "./text.js";
 export type Shared = {
   register: Register | undefined;
   notify(message: string, type: "info" | "warning"): void;
-  /** Copy yanked text to the system clipboard, best effort. */
-  copy(text: string): void;
+  /** The system clipboard, for yanks and the `"+` register. */
+  clipboard: Clipboard;
   /** Quit Pi. */
   quit(): void;
   /** Where the mode label goes. */
@@ -71,6 +73,8 @@ export function attach(
   editor: object,
   keybindings: KeybindingsManager,
   shared: Shared,
+  /** Ask Pi to render, for changes that arrive outside input. */
+  redraw: () => void = () => {},
 ): boolean {
   if (DECORATED in editor) return true;
   const target = editor as Decoratable;
@@ -136,7 +140,7 @@ export function attach(
       }
       if (effect.kind === "yank") {
         shared.register = effect.register;
-        if (effect.copy) shared.copy(effect.register.text);
+        if (effect.copy) shared.clipboard.write(effect.register);
       }
       if (effect.kind === "undo" || effect.kind === "redo") {
         // An edit since the last undo or redo ends what can be redone;
@@ -147,6 +151,8 @@ export function attach(
         undone = port.read().lines.join("\n");
       }
       if (effect.kind === "repeat") repeat();
+      if (effect.kind === "clipboard")
+        putClipboard(effect.before, effect.count);
       if (effect.kind === "message") shared.notify(effect.text, "info");
       if (effect.kind === "quit") {
         if (effect.force || port.read().lines.join("") === "") shared.quit();
@@ -247,6 +253,41 @@ export function attach(
     else state = { ...state, keys: [] };
   };
 
+  // `"+p`: read the clipboard, then put it only if nothing changed meanwhile,
+  // so a slow read never lands in a different prompt, place, or mode.
+  // `"+p` reads asynchronously. Puts run one at a time, in key order, and
+  // each applies only if nothing else happened since its key: `changes` goes
+  // up whenever a key changes the text, cursor, or mode, and `settled` is
+  // the editor as the last key or put left it, which catches clicks and
+  // other extensions. A put itself doesn't count, so `"+p"+p` puts twice.
+  let changes = 0;
+  let settled = "";
+  let puts: Promise<void> = Promise.resolve();
+  const snapshot = () => `${state.mode}|${fingerprint(port.read())}`;
+  const putClipboard = (before: boolean, count: number) => {
+    const at = changes;
+    puts = puts.then(async () => {
+      const { register, warning } = await shared.clipboard.read();
+      if (warning) shared.notify(warning, "warning");
+      if (!register) return;
+      const focused = (editor as { focused?: boolean }).focused !== false;
+      if (changes !== at || snapshot() !== settled || !focused)
+        return shared.notify(
+          "The prompt changed; not putting the clipboard.",
+          "info",
+        );
+      // Text that looks like a pasted block would put that block's content.
+      if (markers(register.text).length)
+        return shared.notify("Vim edits can't touch pasted blocks.", "info");
+      const depth = port.undoDepth();
+      run(putText(port.read(), register, before, count));
+      if (port.undoDepth() > depth + 1) port.collapseUndo(depth);
+      settle();
+      settled = snapshot();
+      redraw();
+    });
+  };
+
   const overtypeKey = (char: string) => {
     const { effects, original } = overtype(port.read(), char);
     run(effects);
@@ -298,6 +339,15 @@ export function attach(
   };
 
   target.handleInput = (data: string) => {
+    const before = snapshot();
+    // A click or another extension changed things: pending puts are stale.
+    if (before !== settled) changes++;
+    handle(data);
+    settled = snapshot();
+    if (settled !== before) changes++;
+  };
+
+  const handle = (data: string) => {
     if (pasting || data.includes(PASTE_START)) {
       pasting =
         data.lastIndexOf(PASTE_START) > data.lastIndexOf(PASTE_END) ||

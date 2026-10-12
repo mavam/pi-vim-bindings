@@ -154,6 +154,14 @@ test.each([
   // Replace mode
   ["|abc", "Rxy<esc>", "x|yc"],
   ["a|b", "Rxyz<esc>", "axy|z"],
+  // Clipboard registers
+  ["|ab", '"+x', "|b"],
+  ["|a\nb", '2"*dd', "|"],
+  ["|ab", '"ax', "|b"],
+  ["|ab", 'vl"+d', "|"],
+  ["|1\n2\n3\n4\n5\n6\n7", '2"+3dd', "|7"],
+  ["|ab", '"+"*x', "|b"],
+  ["|ab cd", 'yiwwve"+p', "ab |ab"],
   // Visual mode
   ["|ab", "vl", "a|b -- visual"],
   ["|ab", "vl<esc>", "a|b"],

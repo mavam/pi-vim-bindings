@@ -95,3 +95,19 @@ and map rows back to buffer columns through private members
 (`buildVisualLineMap`, `lastWidth`, `scrollOffset`,
 `renderedVisibleLineCount`), while working around the fake cursor's reverse
 video.
+
+## 5. Export `readClipboardText` from `pi-coding-agent`
+
+**What do you want to change?**
+
+Export `readClipboardText()` (`packages/coding-agent/src/utils/clipboard.ts`)
+from the package entry point, next to the already exported
+`copyToClipboard()`.
+
+**Why?**
+
+Extensions that put the system clipboard, like a Vim `"+p`, can use
+`pi-tui`'s `getNativeClipboard()` for macOS, Windows, and X11, but have to
+reimplement Pi's Wayland and Termux fallbacks (`wl-paste`,
+`termux-clipboard-get`). Exporting the reader keeps them in line with how Pi
+itself reads the clipboard.

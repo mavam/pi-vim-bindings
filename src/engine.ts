@@ -71,6 +71,8 @@ export type Effect =
   /** Quit Pi; without `force`, only if the prompt is empty. */
   | { kind: "quit"; force: boolean }
   | { kind: "message"; text: string }
+  /** Put the system clipboard (`"+p`); the host reads it and calls `putText`. */
+  | { kind: "clipboard"; before: boolean; count: number }
   | { kind: "refuse" };
 /** `change` holds the keys of a completed change, for `.` to replay. */
 export type Result = {
@@ -200,6 +202,8 @@ export function press(
   buf: Buffer,
   register: Register | undefined,
 ): Result {
+  const named = clipboardRegister(state, key, buf, register);
+  if (named) return named;
   if (isVisual(state.mode)) return pressVisual(state, key, buf, register);
   const keys = [...state.keys, key];
   const done = (mode: Mode, find = state.find): State => ({
@@ -228,6 +232,100 @@ export function press(
       ? keys
       : undefined;
   return { state: done(mode, find), effects, change };
+}
+
+const CLIPBOARD = new Set(["+", "*"]);
+const CLIPBOARD_EDITS = new Set("xXsSDCY");
+const CLIPBOARD_OPS = new Set(["d", "c", "y"]);
+
+/**
+ * `"+` and `"*` name the system clipboard: yanks, deletes, and changes also
+ * copy to it, and `"+p` asks the host to put it. Both are the same register;
+ * `"*` isn't X11's primary selection. Other registers aren't supported.
+ * Returns undefined when the keys don't start with a register.
+ */
+function clipboardRegister(
+  state: State,
+  key: string,
+  buf: Buffer,
+  register: Register | undefined,
+): Result | undefined {
+  const keys = [...state.keys, key];
+  // The register comes first, or right after a count: `"+2dd`, `2"+dd`.
+  let at = 0;
+  while (at < keys.length && /^[0-9]$/.test(keys[at])) at++;
+  if (keys[at] !== '"' || (at > 0 && keys[0] === "0")) return undefined;
+  const pending = { state: { ...state, keys }, effects: [] };
+  const cancel = {
+    state: isVisual(state.mode)
+      ? { ...state, keys: [] }
+      : ({ mode: "normal", keys: [], find: state.find } as State),
+    effects: [],
+  };
+  // Repeating the prefix is fine, as in Vim: `"+"+p`.
+  let i = at;
+  while (keys[i] === '"') {
+    if (i + 1 >= keys.length) return pending;
+    if (!CLIPBOARD.has(keys[i + 1])) return cancel;
+    i += 2;
+  }
+  const after = keys.slice(i);
+  if (!after.length) return pending;
+  // Counts on both sides multiply: `2"+3dd` deletes six lines.
+  let j = 0;
+  while (j < after.length && /^[0-9]$/.test(after[j]) && after[0] !== "0") j++;
+  const a = at ? Number(keys.slice(0, at).join("")) : undefined;
+  const b = j ? Number(after.slice(0, j).join("")) : undefined;
+  const count =
+    a === undefined && b === undefined
+      ? []
+      : [...String(Math.min((a ?? 1) * (b ?? 1), MAX_COUNT))];
+  const inner = [...count, ...after.slice(j)];
+  if (inner.length === count.length) return pending;
+  if (isVisual(state.mode)) {
+    const op = inner[0];
+    if (at > 0 || j > 0 || inner.length !== 1) return cancel;
+    // Visual `p` keeps using the unnamed register.
+    if (op === "p" || op === "P")
+      return pressVisual({ ...state, keys: [] }, op, buf, register);
+    if (!(op in VISUAL_OPS)) return cancel;
+    const result = pressVisual({ ...state, keys: [] }, op, buf, register);
+    return { ...result, effects: copying(result.effects) };
+  }
+  const parsed = parse(inner);
+  if (parsed === "pending") return pending;
+  if (parsed === "invalid") return cancel;
+  if (parsed.kind === "edit" && (parsed.key === "p" || parsed.key === "P")) {
+    const effect: Effect = {
+      kind: "clipboard",
+      before: parsed.key === "P",
+      count: parsed.count ?? 1,
+    };
+    return { state: cancel.state, effects: [effect] };
+  }
+  const allowed =
+    (parsed.kind === "op" && CLIPBOARD_OPS.has(parsed.op)) ||
+    (parsed.kind === "edit" && CLIPBOARD_EDITS.has(parsed.key));
+  if (!allowed) return cancel;
+  let result: Result = { state: { ...state, keys: [] }, effects: [] };
+  for (const k of inner) result = press(result.state, k, buf, register);
+  const change = result.change && keys;
+  return { ...result, effects: copying(result.effects), change };
+}
+
+/** Yanks in `effects`, made to copy to the system clipboard too. */
+function copying(effects: Effect[]): Effect[] {
+  return effects.map((e) => (e.kind === "yank" ? { ...e, copy: true } : e));
+}
+
+/** Put `register` at the cursor `count` times, as `p` or `P` would. */
+export function putText(
+  buf: Buffer,
+  register: Register,
+  before: boolean,
+  count: number,
+): Effect[] {
+  return put(before, buf, repeated(buf, register, count));
 }
 
 /** Visual mode: motions move the cursor; operators act on the selection. */

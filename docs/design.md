@@ -20,8 +20,8 @@ License: MIT
 
 **Non-goals (v0.1)**
 
-Macros, search, registers beyond one unnamed register,
-reading the OS clipboard, Ex commands beyond quitting, cursor shape, settings
+Macros, search, registers beyond the unnamed one and the clipboard,
+Ex commands beyond quitting, cursor shape, settings
 beyond the indicator position, remapping, a
 `/vim` command, and decorating overlay editors that other extensions create.
 Disable the extension with `pi config` or by uninstalling it.
@@ -322,8 +322,24 @@ onto a character. No DECSCUSR.
   INSERT.
 - **Per extension:** the unnamed register `{ text, linewise }`. It holds plain
   text only (markers are refused), so it survives submits and editor
-  recreation. Yanks are also copied to the system clipboard with Pi's exported
-  `copyToClipboard`, best effort; `p` never reads the clipboard.
+  recreation.
+- **System clipboard (`src/clipboard.ts`, host side).** The engine treats `"+`
+  and `"*` as a prefix: it runs the rest of the command as usual, marks its
+  yank as copying, and turns `"+p` into a `clipboard` effect. The clipboard
+  module writes through Pi's exported `copyToClipboard` and keeps a mirror of
+  the last copy with its register shape. Reads use `pi-tui`'s public
+  `getNativeClipboard()` (macOS, Windows, X11), after `wl-paste` or
+  `termux-clipboard-get` where those apply, spawned without a shell, with a
+  timeout and an output cap, and killed with SIGKILL if they ignore SIGTERM.
+  A read first waits for any copy in flight, so a yank followed by `"+p`
+  never reads older text; copies and that wait are bounded by the same
+  timeout. The decorator runs puts one at a time in key order and applies one
+  only if the editor is still focused and no key changed the text, cursor, or
+  mode since its own key (a counter, so changing and changing back counts),
+  and nothing else did either (a snapshot of the editor as the last key or
+  put left it). Then it puts with the engine's pure `putText()` as one undo
+  step. Upstream ask #5 would replace the platform
+  commands.
 - **Replace mode:** printable keys go to the engine's pure `overtype()`,
   which overwrites the cluster under the cursor or appends at the line end and
   reports what it overwrote; Backspace goes to `untype()`, which restores it.

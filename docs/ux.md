@@ -171,14 +171,46 @@ block: `p` / `P` insert it column by column, starting at the cursor.
 Block columns are display columns, so wide characters count twice. `u` undoes
 any Visual change in one step. `.` doesn't repeat Visual changes.
 
-## 6. Register
+## 6. Registers and the system clipboard
 
 One unnamed register inside the extension, plain text plus a linewise flag.
 `d`, `c`, `x`, `s`, `y` write it; `p`/`P` read it. Visual block deletes and
-yanks store a block. It survives submits.
+yanks store a block. It survives submits. Pi's own kill ring (`Ctrl-K` /
+`Ctrl-Y`) works independently.
+
 Yanks (`y`, `Y`) also go to the system clipboard through Pi; deletes and
-changes don't. `p`/`P` always read the internal register. Pi's own kill ring
-(`Ctrl-K` / `Ctrl-Y`) works independently.
+changes don't, and `p`/`P` never read it. To use the system clipboard
+explicitly, put `"+` or `"*` in front of a command, before or after a count.
+Counts on both sides multiply (`2"+3dd` deletes six lines), and repeating the
+prefix (`"+"+p`) is fine.
+
+| Keys | Action |
+| --- | --- |
+| `"+yy`, `"+dw`, `"+x`, `"+D`, `"+ciw` … | Yank, delete, or change, and copy to the system clipboard |
+| `"+y` / `"+d` / `"+c` in Visual mode | Same for the selection |
+| `"+p` / `"+P`, `"+3p` | Put the system clipboard after / before the cursor, `n` times |
+
+`"*` is the same register as `"+`; it isn't X11's primary selection. Other
+registers (`"a`, `"0`, …) aren't supported.
+
+How `"+p` treats the clipboard:
+
+- If it still holds our last copy, it puts with that copy's shape:
+  characterwise, linewise, or block.
+- Other text is characterwise, unless it ends in a line break, which makes it
+  linewise, as in Vim.
+- An empty clipboard puts nothing, with a notice. If the clipboard can't be
+  read (no display, an SSH session), `"+p` puts our last copy with a warning,
+  or does nothing if there's none. It never falls back to the unnamed
+  register.
+- Reading is asynchronous, so typing never waits for it. If anything changes
+  the prompt, cursor, or mode before the text arrives, even if it changes
+  back, nothing is put. Several `"+p` in a row put one after another, in
+  order. Each put is one undo step and isn't repeated by `.`.
+- Line breaks become `\n` and tabs four spaces, as in Pi. A read gives up
+  after two seconds or 10 MB.
+- Clipboard text that contains a pasted-block marker (`[paste #1 +3 lines]`)
+  is refused, since it would put that block's content.
 
 ## 7. Differences from Vim
 
@@ -207,6 +239,9 @@ Deliberate, to keep the scope small:
   was typed after it, overwriting as Replace mode does.
 - **Redo** only redoes what `u` undid, not Pi's own undo (`Ctrl-_`), and
   takes no count.
+- **Clipboard:** `"+` and `"*` are the only named registers; `"*` isn't the
+  primary selection. In Visual mode, `"+p` puts the unnamed register, like
+  plain `p`.
 - **Indent** is two spaces. **Clipboard** copies are best effort.
 
 ## 8. Cut from v0.1

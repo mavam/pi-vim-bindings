@@ -103,8 +103,9 @@ Quote and bracket objects stay on the current line.
 | `.` | Repeat the last change |
 
 Deletes, changes, and yanks share one register. Yanks also go to the system
-clipboard. Edits that would cut into a pasted block (`[paste #1 +24 lines]`)
-are refused.
+clipboard. Prefix a command with `"+` or `"*` to use the system clipboard
+explicitly: `"+dd` cuts a line to it, and `"+p` puts it. Edits that would cut
+into a pasted block (`[paste #1 +24 lines]`) are refused.
 
 **Visual modes**
 
@@ -151,7 +152,7 @@ based on reading their source as of October 2026:
 | Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| System clipboard | yanks | both ways | yanks | ❌ | ❌ | both ways |
+| System clipboard | both ways | both ways | yanks | ❌ | ❌ | both ways |
 | Ex commands | `:q` | Pi commands | Pi commands | ❌ | ❌ | Pi commands, editing |
 | Cursor shape per mode | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
 

@@ -4,7 +4,9 @@ import {
   type ExtensionAPI,
   type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
+import { getNativeClipboard } from "@earendil-works/pi-tui";
 import { attach, type Position, type Shared } from "./attach.js";
+import { createClipboard, readCommands } from "./clipboard.js";
 
 type Factory = NonNullable<
   ReturnType<ExtensionUIContext["getEditorComponent"]>
@@ -35,9 +37,11 @@ export default function (pi: ExtensionAPI): void {
   const shared: Shared = {
     register: undefined,
     notify: () => {},
-    copy: (text) => {
-      copyToClipboard(text).catch(() => {});
-    },
+    clipboard: createClipboard({
+      copy: copyToClipboard,
+      native: getNativeClipboard,
+      commands: () => readCommands(),
+    }),
     paint: (_insert, text) => text,
     quit: () => {},
     position: "bottom-right",
@@ -56,7 +60,7 @@ export default function (pi: ExtensionAPI): void {
       const editor =
         previous?.(tui, theme, keybindings) ??
         new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-      attach(editor, keybindings, shared);
+      attach(editor, keybindings, shared, () => tui.requestRender());
       return editor;
     };
     ui.setEditorComponent(Object.assign(factory, { [OURS]: true }));
