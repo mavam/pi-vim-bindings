@@ -1,0 +1,8 @@
+created: 2026-10-12
+title: Vim modes for Pi's prompt editor
+intro: >-
+  Pi Vim Editor brings Vim's INSERT, NORMAL, and Visual modes to Pi's prompt editor.
+  It adds them to whatever editor is installed, so Pi's inline working indicator and
+  other editor extensions keep working.
+source:
+  mode: sync-stable-queue
