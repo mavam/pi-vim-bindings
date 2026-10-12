@@ -21,8 +21,8 @@ License: MIT
 **Non-goals (v0.1)**
 
 Macros, search, registers beyond the unnamed one and the clipboard,
-Ex commands beyond quitting, cursor shape, settings
-beyond the indicator position, remapping, a
+Ex commands beyond quitting, settings beyond the indicator position and
+opt-in cursor shapes, remapping, a
 `/vim` command, and decorating overlay editors that other extensions create.
 Disable the extension with `pi config` or by uninstalling it.
 
@@ -93,7 +93,7 @@ Four members on the **instance**, each delegating to the value it replaced
 | --- | --- |
 | `handleInput(data)` | The TUI dispatches to the focused component's current `handleInput` (`tui.ts:1120–1130`); host paste goes through it too (`interactive-mode.ts:2655`). |
 | `renderTopBorder(width, hidden)`, `renderBottomBorder(width, hidden)` | `Editor.render()` calls both through `this` (`editor.ts:564`, `616`). One of them carries the mode label (§7); the other passes through. |
-| `render(width)` | Only in Visual mode: reverse-videos the selection in the rows the original `render()` returned (§6.1). Otherwise returns them unchanged. |
+| `render(width)` | Applies opt-in cursor shapes (§7), then reverse-videos the selection in Visual mode (§6.1). Otherwise returns the original rows unchanged. |
 
 A controller is stored under `Symbol.for("pi-vim-editor")`; a second
 `attach()` on the same instance is a no-op. There's no `detach()`: removing
@@ -123,7 +123,8 @@ don't patch it and notify once.
 
 ```text
 src/
-├── index.ts      # session_start wiring (§3.1)
+├── index.ts      # session_start/shutdown wiring (§3.1)
+├── cursor.ts     # opt-in hardware cursor shape and lifecycle (§7)
 ├── attach.ts     # instance patching: input routing (§5), mode label (§7)
 ├── engine.ts     # PURE: key → effects; parser, motions, objects
 ├── text.ts       # PURE: graphemes, word classes, paste-marker spans
@@ -313,8 +314,31 @@ terminal is narrow), the label is left out. No status-line fallback.
 Border widgets (open Pi PR #10602) could replace the patch later. Not designed
 for now.
 
-The cursor is Pi's (reverse-video block or hardware cursor). NORMAL clamps it
-onto a character. No DECSCUSR.
+NORMAL clamps the cursor onto a character. By default, the cursor remains
+Pi’s reverse-video block, with no terminal escapes from this extension.
+
+With `vimEditor.cursorShape: true`, `cursor.ts` uses DECSCUSR 6 (steady bar)
+in INSERT, 2 (steady block) in NORMAL/Visual, and 4 (steady underline) in
+REPLACE. It checks the public `tui.getShowHardwareCursor()` at render time
+and never changes cursor visibility. It only writes a shape when it changes
+and the focused editor emits `CURSOR_MARKER`. Before Visual highlighting,
+it removes the opening reverse-video SGR immediately after that marker,
+leaving the cell, marker, and style reset intact.
+
+The cursor controller decorates the editor’s public `focused` property,
+composing with existing accessors, to reset on focus loss even when a dialog
+unmounts the editor. It wraps the public terminal’s `stop()` and `start()`
+to reset before external-editor or suspend handoff and reapply on resume.
+While stopped, it leaves renders alone: fullscreen renders the transcript
+after stopping. The terminal survives renderer switches; the TUI reference
+itself is a moving proxy and must not be patched. Reset uses DECSCUSR 0
+(typically blinking block), not a snapshot of the previous terminal shape.
+
+Factory replacement and `session_shutdown` dispose the controller. Cleanup
+restores only wrappers it still owns; wrappers retained by later extensions
+become inert. Missing cursor capabilities disable only cursor shapes, not
+Vim editing. No process listeners, terminal queries, or visibility changes
+are installed.
 
 ## 8. State
 
@@ -385,8 +409,8 @@ Following the workspace rule: test documented behavior, about one test each.
 - `Ctrl-[` equals Esc in every encoding (`879f137`).
 - Linewise vs. charwise put cursor placement follows Vim (`59db9e6`, `53e8bda`).
 - Autocomplete gets Esc first; Tab/Enter acceptance stays with Pi.
-- Don't write terminal escapes we can't restore (`5e216bc`, `0f40d5b`). v0.1
-  writes none.
+- Cursor-shape escapes are opt-in and paired with resets on focus loss,
+  terminal handoff, replacement, and shutdown (`5e216bc`, `0f40d5b`).
 - No subprocesses or host-path probing at startup (`c121bd1`, `6cf2548`).
 
 ## References

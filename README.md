@@ -154,7 +154,9 @@ based on reading their source as of October 2026:
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | System clipboard | both ways | both ways | yanks | ❌ | ❌ | both ways |
 | Ex commands | `:q` | Pi commands | Pi commands | ❌ | ❌ | Pi commands, editing |
-| Cursor shape per mode | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Cursor shape per mode | ✅ opt-in¹ | ✅ | ✅ | ✅ | ❌ | ✅ |
+
+¹ Requires Pi’s hardware cursor and a terminal that supports cursor shapes.
 
 ## ⚙️ Configuration
 
@@ -165,3 +167,24 @@ Move the mode label to another corner in Pi's `settings.json`:
 ```
 
 Choose `bottom-right` (default), `bottom-left`, `top-right`, or `top-left`.
+
+To also show the mode through the cursor shape, enable both settings:
+
+```json
+{
+  "showHardwareCursor": true,
+  "vimEditor": { "cursorShape": true }
+}
+```
+
+`cursorShape` defaults to `false`. When enabled, INSERT uses a steady bar,
+NORMAL and Visual modes a steady block, and REPLACE a steady underline. Pi
+still controls cursor visibility; with its hardware cursor hidden, the
+software cursor stays unchanged.
+
+Cursor shapes require DECSCUSR support in your terminal and, if used, tmux
+or another multiplexer. Disable `cursorShape` if your terminal ignores the
+sequences. The extension resets the shape with DECSCUSR 0 (typically a blinking
+block) when the prompt loses focus, Pi opens an external editor or suspends,
+or the extension shuts down or reloads. It does not query or restore your
+pre-Pi cursor shape.

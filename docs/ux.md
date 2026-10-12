@@ -250,7 +250,7 @@ Candidates for later, roughly by demand:
 
 - Backtick quotes, `b`/`B` bracket aliases, multi-line bracket objects
 
-Not planned: cursor shape (pi-vim #55), `jj`/`jk` escape (pi-vim #45).
+Not planned: `jj`/`jk` escape (pi-vim #45).
 
 Out of scope: search, `{ }`, named registers, macros, marks, `{n}R`, `gR`, Ex commands
 beyond quitting, remapping, history on `j`/`k`, `.` for Visual changes, `>`/`<` with
@@ -258,7 +258,7 @@ motions, a configurable indent width.
 
 ## 9. Configuration
 
-One setting, in Pi's `settings.json` (global or project):
+Settings go in Pi's `settings.json` (global or project):
 
 ```json
 { "vimEditor": { "indicator": "top-left" } }
@@ -267,6 +267,18 @@ One setting, in Pi's `settings.json` (global or project):
 `indicator` places the mode label: `bottom-right` (default), `bottom-left`,
 `top-right`, or `top-left`. On the top border, the label sits next to Pi's
 working indicator; when a border has no room, the label is left out.
+
+Set `"vimEditor": { "cursorShape": true }` and `"showHardwareCursor": true`
+to use steady cursor shapes: bar in INSERT, block in NORMAL and all Visual
+modes, underline in REPLACE. Cursor shapes are off by default and never
+change Pi’s hardware-cursor visibility setting. When the hardware cursor is
+hidden, Pi’s software cursor stays unchanged. Visual selections remain
+highlighted when the hardware cursor is shown.
+
+The terminal and any multiplexer must support DECSCUSR. When the prompt
+loses focus or Pi yields the terminal, the shape resets with DECSCUSR 0
+(typically blinking block); the previous terminal shape is not queried. Returning to the prompt
+reapplies the current mode’s shape. Shutdown and reload also reset it.
 
 ## 10. Decisions
 

@@ -10,8 +10,8 @@ function start(mode: string, previous?: Factory): Factory | undefined {
   let installed: Factory | undefined;
   let handler: ((event: unknown, ctx: unknown) => void) | undefined;
   extension({
-    on: (_event: string, h: typeof handler) => {
-      handler = h;
+    on: (event: string, h: typeof handler) => {
+      if (event === "session_start") handler = h;
     },
   } as never);
   handler?.(
@@ -55,3 +55,90 @@ test("decorates the editor of a previously installed factory", () => {
   expect(editor).toBe(inner as CustomEditor);
   expect(decorated(editor)).toBe(true);
 });
+
+test.each([false, true])(
+  "cursor shapes are opt-in and cleaned up across their lifecycle (cached editor: %s)",
+  (cached) => {
+    type Handler = (event: unknown, ctx: unknown) => void;
+    const handlers = new Map<string, Handler>();
+    let settings: unknown = {};
+    let factory: Factory | undefined;
+    const writes: string[] = [];
+    const host = {
+      ...tui,
+      terminal: {
+        ...tui.terminal,
+        write: (text: string) => writes.push(text),
+        start() {},
+        stop() {},
+      },
+      getShowHardwareCursor: () => true,
+    };
+    const originalStart = host.terminal.start;
+    const originalStop = host.terminal.stop;
+    if (cached) {
+      const inner = new CustomEditor(
+        host as never,
+        theme as never,
+        keybindings(),
+      );
+      factory = () => inner;
+    }
+    extension({
+      on: (event: string, handler: Handler) => handlers.set(event, handler),
+      getSettings: () => settings,
+    } as never);
+    const session = () =>
+      handlers.get("session_start")?.(
+        {},
+        {
+          mode: "tui",
+          ui: {
+            notify() {},
+            theme: { fg: (_color: string, text: string) => text },
+            getEditorComponent: () => factory,
+            setEditorComponent: (value: Factory) => {
+              factory = value;
+            },
+          },
+        },
+      );
+    const editor = () => {
+      const result = (factory as Factory)(
+        host as never,
+        theme as never,
+        keybindings() as never,
+      );
+      result.focused = true;
+      result.render(40);
+      return result;
+    };
+    session();
+    const first = editor();
+    expect(writes).toEqual([]);
+    expect(host.terminal.stop).toBe(originalStop);
+    settings = { vimEditor: { cursorShape: true } };
+    session();
+    first.render(40);
+    expect(writes).toEqual(["\x1b[6 q"]);
+    const second = editor();
+    expect(writes).toEqual(["\x1b[6 q", "\x1b[0 q", "\x1b[6 q"]);
+    settings = { vimEditor: { cursorShape: false } };
+    session();
+    second.render(40);
+    expect(writes.at(-1)).toBe("\x1b[0 q");
+    expect(host.terminal.stop).toBe(originalStop);
+    settings = { vimEditor: { cursorShape: true } };
+    session();
+    second.render(40);
+    handlers.get("session_shutdown")?.({ reason: "reload" }, {});
+    expect(writes.slice(-2)).toEqual(["\x1b[6 q", "\x1b[0 q"]);
+    const count = writes.length;
+    second.render(40);
+    first.render(40);
+    handlers.get("session_shutdown")?.({ reason: "quit" }, {});
+    expect(writes).toHaveLength(count);
+    expect(host.terminal.start).toBe(originalStart);
+    expect(host.terminal.stop).toBe(originalStop);
+  },
+);

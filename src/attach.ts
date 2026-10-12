@@ -23,6 +23,7 @@ import {
   isVisual,
   type LineSpan,
   label,
+  type Mode,
   overtype,
   press,
   putText,
@@ -73,6 +74,7 @@ export function attach(
   editor: object,
   keybindings: KeybindingsManager,
   shared: Shared,
+  renderCursor?: (mode: Mode, lines: string[]) => void,
   /** Ask Pi to render, for changes that arrive outside input. */
   redraw: () => void = () => {},
 ): boolean {
@@ -429,6 +431,7 @@ export function attach(
   target.render = (width: number) => {
     if (isVisual(state.mode)) reconcile(port.read());
     const lines = render(width);
+    renderCursor?.(state.mode, lines);
     if (!isVisual(state.mode)) return lines;
     const buf = port.read();
     const layout = port.layout?.(width);

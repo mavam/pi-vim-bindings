@@ -6,7 +6,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getNativeClipboard } from "@earendil-works/pi-tui";
 import { attach, type Position, type Shared } from "./attach.js";
+
 import { createClipboard, readCommands } from "./clipboard.js";
+import { type Cursor, cursorFor } from "./cursor.js";
 
 type Factory = NonNullable<
   ReturnType<ExtensionUIContext["getEditorComponent"]>
@@ -34,6 +36,10 @@ function position(settings: unknown): Position {
  * it. See docs/design.md.
  */
 export default function (pi: ExtensionAPI): void {
+  let cursorShape = false;
+  const cursors = new WeakMap<object, Cursor>();
+  let disposeCursor = () => {};
+  let configureCursor = (_enabled: boolean) => {};
   const shared: Shared = {
     register: undefined,
     notify: () => {},
@@ -51,18 +57,47 @@ export default function (pi: ExtensionAPI): void {
     const { ui } = ctx;
     shared.notify = (message, type) => ui.notify(message, type);
     shared.quit = () => ctx.shutdown();
-    shared.position = position(pi.getSettings?.());
+    const settings = pi.getSettings?.();
+    shared.position = position(settings);
+    cursorShape =
+      (settings as { vimEditor?: { cursorShape?: unknown } })?.vimEditor
+        ?.cursorShape === true;
+    configureCursor(cursorShape);
     shared.paint = (insert, text) =>
       ui.theme.fg(insert ? "muted" : "accent", text);
     const previous = ui.getEditorComponent();
     if (previous && OURS in previous) return;
     const factory: Factory = (tui, theme, keybindings) => {
+      disposeCursor();
       const editor =
         previous?.(tui, theme, keybindings) ??
         new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-      attach(editor, keybindings, shared, () => tui.requestRender());
+      const attached = attach(
+        editor,
+        keybindings,
+        shared,
+        (mode, lines) => cursors.get(editor)?.render(mode, lines),
+        () => tui.requestRender(),
+      );
+      disposeCursor = () => {
+        cursors.get(editor)?.dispose();
+        cursors.delete(editor);
+      };
+      configureCursor = (enabled) => {
+        disposeCursor();
+        if (!enabled || !attached) return;
+        const cursor = cursorFor(editor, tui);
+        if (cursor) cursors.set(editor, cursor);
+        else
+          shared.notify(
+            "Cursor shapes aren't supported by this editor.",
+            "warning",
+          );
+      };
+      configureCursor(cursorShape);
       return editor;
     };
     ui.setEditorComponent(Object.assign(factory, { [OURS]: true }));
   });
+  pi.on("session_shutdown", () => disposeCursor());
 }
