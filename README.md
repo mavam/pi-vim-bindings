@@ -160,6 +160,13 @@ based on reading their source as of October 2026:
 
 ## ⚙️ Configuration
 
+To make plain `p` paste the system clipboard, and every delete and change
+copy to it, as with Vim's `clipboard=unnamedplus`:
+
+```json
+{ "vimEditor": { "clipboard": "unnamedplus" } }
+```
+
 Move the mode label to another corner in Pi's `settings.json`:
 
 ```json

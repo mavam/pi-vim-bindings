@@ -75,7 +75,8 @@ export type Effect =
   | { kind: "quit"; force: boolean }
   | { kind: "message"; text: string }
   /** Put the system clipboard (`"+p`); the host reads it and calls `putText`. */
-  | { kind: "clipboard"; before: boolean; count: number }
+  /** `quiet` puts our last copy without a warning if reading fails. */
+  | { kind: "clipboard"; before: boolean; count: number; quiet?: boolean }
   | { kind: "refuse" };
 /** `change` holds the keys of a completed change, for `.` to replay. */
 export type Result = {
@@ -204,9 +205,29 @@ export function press(
   key: string,
   buf: Buffer,
   register: Register | undefined,
+  /** `unnamed`: `p` and `P` put the system clipboard, like `"+p`. */
+  options: { unnamed?: boolean } = {},
 ): Result {
   const named = clipboardRegister(state, key, buf, register);
   if (named) return named;
+  if (options.unnamed && !isVisual(state.mode)) {
+    const keys = [...state.keys, key];
+    const parsed = parse(keys);
+    if (
+      typeof parsed === "object" &&
+      parsed.kind === "edit" &&
+      (parsed.key === "p" || parsed.key === "P")
+    ) {
+      const effect: Effect = {
+        kind: "clipboard",
+        before: parsed.key === "P",
+        count: parsed.count ?? 1,
+        quiet: true,
+      };
+      const done: State = { mode: "normal", keys: [], find: state.find };
+      return { state: done, effects: [effect], change: keys };
+    }
+  }
   if (isVisual(state.mode)) return pressVisual(state, key, buf, register);
   const keys = [...state.keys, key];
   const done = (mode: Mode, find = state.find): State => ({

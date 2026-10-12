@@ -203,7 +203,7 @@ yanks store a block. It survives submits. Pi's own kill ring (`Ctrl-K` /
 `Ctrl-Y`) works independently.
 
 Yanks (`y`, `Y`) also go to the system clipboard through Pi; deletes and
-changes don't, and `p`/`P` never read it. To use the system clipboard
+changes don't, and `p`/`P` never read it, unless you set `clipboard` (§10). To use the system clipboard
 explicitly, put `"+` or `"*` in front of a command, before or after a count.
 Counts on both sides multiply (`2"+3dd` deletes six lines), and repeating the
 prefix (`"+"+p`) is fine.
@@ -309,6 +309,14 @@ loses focus or Pi yields the terminal, the shape resets with DECSCUSR 0
 (the terminal's default; a blinking block in xterm); the previous terminal
 shape is not queried. Returning to the prompt reapplies the current mode's
 shape. Shutdown and reload also reset it.
+
+Set `"vimEditor": { "clipboard": "unnamedplus" }` to use the system
+clipboard as the unnamed register, like Vim's `clipboard=unnamedplus`
+(`"unnamed"` does the same): every yank, delete, and change copies to it,
+and `p` / `P` in NORMAL mode put it, with counts and `.`, exactly like
+`"+p` / `"+P` (§7). If the clipboard can't be read, as over SSH, `p` quietly
+puts our last copy. Visual `p` keeps putting the internal register, which
+holds the same text unless something outside Pi changed the clipboard.
 
 ## 11. Decisions
 

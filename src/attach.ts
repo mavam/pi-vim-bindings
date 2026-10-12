@@ -50,6 +50,12 @@ export type Shared = {
   notify(message: string, type: "info" | "warning"): void;
   /** The system clipboard, for yanks and the `"+` register. */
   clipboard: Clipboard;
+  /**
+   * Use the system clipboard for the unnamed register, like Vim's
+   * `clipboard=unnamedplus`: every yank, delete, and change copies to it,
+   * and `p` / `P` put it.
+   */
+  unnamed?: boolean;
   /** Quit Pi. */
   quit(): void;
   /** Where the mode label goes. */
@@ -164,7 +170,8 @@ export function attach(
       }
       if (effect.kind === "yank") {
         shared.register = effect.register;
-        if (effect.copy) shared.clipboard.write(effect.register);
+        if (effect.copy || shared.unnamed)
+          shared.clipboard.write(effect.register);
       }
       if (effect.kind === "undo" || effect.kind === "redo") {
         // An edit since the last undo or redo ends what can be redone;
@@ -176,7 +183,7 @@ export function attach(
       }
       if (effect.kind === "repeat") repeat(effect.count);
       if (effect.kind === "clipboard")
-        putClipboard(effect.before, effect.count);
+        putClipboard(effect.before, effect.count, effect.quiet);
       if (effect.kind === "message") shared.notify(effect.text, "info");
       if (effect.kind === "quit") {
         if (effect.force || port.read().lines.join("") === "") shared.quit();
@@ -196,7 +203,9 @@ export function attach(
     const depth = port.undoDepth();
     const before = state;
     const buf = port.read();
-    const result = press(state, key, buf, shared.register);
+    const result = press(state, key, buf, shared.register, {
+      unnamed: shared.unnamed,
+    });
     if (isVisual(result.state.mode) && !port.layout) {
       shared.notify("Visual mode isn't supported by this Pi version.", "info");
       return;
@@ -374,11 +383,12 @@ export function attach(
   let settled = "";
   let puts: Promise<void> = Promise.resolve();
   const snapshot = () => `${state.mode}|${fingerprint(port.read())}`;
-  const putClipboard = (before: boolean, count: number) => {
+  const putClipboard = (before: boolean, count: number, quiet = false) => {
     const at = changes;
     puts = puts.then(async () => {
       const { register, warning } = await shared.clipboard.read();
-      if (warning) shared.notify(warning, "warning");
+      // A plain `p` falls back to our last copy silently, e.g. over SSH.
+      if (warning && !(quiet && register)) shared.notify(warning, "warning");
       if (!register) return;
       const focused = (editor as { focused?: boolean }).focused !== false;
       if (changes !== at || snapshot() !== settled || !focused)

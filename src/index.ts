@@ -63,6 +63,9 @@ export default function (pi: ExtensionAPI): void {
       (settings as { vimEditor?: { cursorShape?: unknown } })?.vimEditor
         ?.cursorShape === true;
     configureCursor(cursorShape);
+    const clipboard = (settings as { vimEditor?: { clipboard?: unknown } })
+      ?.vimEditor?.clipboard;
+    shared.unnamed = clipboard === "unnamedplus" || clipboard === "unnamed";
     shared.paint = (insert, text) =>
       ui.theme.fg(insert ? "muted" : "accent", text);
     const previous = ui.getEditorComponent();

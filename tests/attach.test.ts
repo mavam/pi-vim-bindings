@@ -185,6 +185,27 @@ test('puts the system clipboard with "+p unless the prompt changed', async () =>
   ]);
 });
 
+test("uses the system clipboard for p and every copy when unnamed", async () => {
+  const { editor, shared, copies, clipboard, notes, type } = setup();
+  shared.unnamed = true;
+  editor.focused = true;
+  editor.setText("ab");
+  type("\x1b", "0", "x");
+  expect(copies).toEqual(["a"]);
+  clipboard.next = { register: { text: "Z", linewise: false } };
+  type("p", ".");
+  await Bun.sleep(0);
+  expect(editor.getText()).toBe("bZZ");
+  // If reading fails, p puts our last copy without a warning.
+  clipboard.next = {
+    register: { text: "a", linewise: false },
+    warning: "Couldn't read the clipboard; using the last copy.",
+  };
+  type("P");
+  await Bun.sleep(0);
+  expect([editor.getText(), notes]).toEqual(["bZaZ", []]);
+});
+
 test("runs queued clipboard puts in order, and drops stale ones", async () => {
   const { editor, shared, type } = setup();
   editor.focused = true;

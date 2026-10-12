@@ -370,6 +370,10 @@ are installed.
   put left it). Then it puts with the engine's pure `putText()` as one undo
   step. Upstream ask #5 would replace the platform
   commands.
+  With `vimEditor.clipboard` set to `unnamedplus` (or `unnamed`), the
+  engine's `press()` turns NORMAL `p` / `P` into the same `clipboard`
+  effect, marked `quiet` so a fallback to the mirror doesn't warn, and the
+  decorator copies every yank effect, not just yanks.
 - **Replace mode:** printable keys go to the engine's pure `overtype()`,
   which overwrites the cluster under the cursor or appends at the line end and
   reports what it overwrote; Backspace goes to `untype()`, which restores it.
