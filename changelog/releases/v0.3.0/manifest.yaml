@@ -1,0 +1,9 @@
+created: 2026-10-12
+title: Repeat every change with .
+intro: >-
+  Repeat every change with `.`, including Visual changes, block inserts, and complex
+  insert sessions. An opt-in clipboard setting also makes plain `p` and `P` use the
+  system clipboard.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.2.0
