@@ -1,4 +1,4 @@
-# Replace two timeout values, restore an overtyped character, repeat, and undo.
+# Replace two timeout values, restore an overtyped character, repeat, undo, and redo.
 # Run `demo/record.sh replace` to regenerate demo/replace.gif.
 # Uses the same isolated, offline Pi setup as demo/demo.tape.
 # demo/record.sh supplies the output path with vhs -o.
@@ -59,4 +59,10 @@ Sleep 1.6s
 Type "u"
 Sleep 0.4s
 Type "$"
-Sleep 2.6s
+Sleep 1.6s
+
+# Redo restores the second value, with the cursor at the change's start.
+Ctrl+R
+Sleep 0.8s
+Type "$"
+Sleep 1.8s

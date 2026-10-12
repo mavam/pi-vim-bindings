@@ -8,7 +8,7 @@ handling, and other editor extensions keep working.
 <table>
   <tr>
     <td width="50%"><img src="https://github.com/mavam/pi-vim-editor/raw/main/demo/vim.gif" alt="Visual block insert formats a file list, ciw fixes a typo, and a Visual selection changes the prompt before submission."></td>
-    <td width="50%"><img src="https://github.com/mavam/pi-vim-editor/raw/main/demo/replace.gif" alt="Replace mode overtypes a timeout, Backspace restores a space, dot repeats the edit, and one undo restores the second timeout."></td>
+    <td width="50%"><img src="https://github.com/mavam/pi-vim-editor/raw/main/demo/replace.gif" alt="Replace mode overtypes a timeout, Backspace restores a space, dot repeats the edit, undo restores the second timeout, and Ctrl-R redoes the change."></td>
   </tr>
   <tr>
     <td align="center">
@@ -16,8 +16,8 @@ handling, and other editor extensions keep working.
       <small>Fix a typo, format a list, and rewrite a selection before submitting.</small>
     </td>
     <td align="center">
-      <strong>Overtype with Replace mode</strong><br>
-      <small>Replace a value, restore an overtyped character, then repeat and undo.</small>
+      <strong>Replace mode, undo, and redo</strong><br>
+      <small>Overtype text, restore it with Backspace, repeat with <code>.</code>, and undo and redo.</small>
     </td>
   </tr>
 </table>
