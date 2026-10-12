@@ -100,7 +100,7 @@ Quote and bracket objects stay on the current line.
 | `p` / `P` | Put after / before the cursor |
 | `u` | Undo a whole change, such as `ciwfoo<Esc>` |
 | `Ctrl-R` | Redo what `u` undid |
-| `.` | Repeat the last change |
+| `.` / `{n}.` | Repeat the last change, including Visual changes and typed text |
 
 Deletes, changes, and yanks share one register. Yanks also go to the system
 clipboard. Prefix a command with `"+` or `"*` to use the system clipboard
@@ -147,7 +147,7 @@ based on reading their source as of October 2026:
 | Operators | `d` `c` `y` `gu` `gU` | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` | limited | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` |
 | Text objects | word, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `.` repeat | ⚠️ partial | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
+| `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
 | `Ctrl-R` redo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |

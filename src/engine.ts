@@ -67,7 +67,8 @@ export type Effect =
   | { kind: "mode"; mode: Mode }
   | { kind: "undo" }
   | { kind: "redo" }
-  | { kind: "repeat" }
+  /** `.`; a count replaces the change's own count. */
+  | { kind: "repeat"; count?: number }
   /** Quit Pi; without `force`, only if the prompt is empty. */
   | { kind: "quit"; force: boolean }
   | { kind: "message"; text: string }
@@ -301,7 +302,7 @@ function clipboardRegister(
       before: parsed.key === "P",
       count: parsed.count ?? 1,
     };
-    return { state: cancel.state, effects: [effect] };
+    return { state: cancel.state, effects: [effect], change: keys };
   }
   const allowed =
     (parsed.kind === "op" && CLIPBOARD_OPS.has(parsed.op)) ||
@@ -311,6 +312,172 @@ function clipboardRegister(
   for (const k of inner) result = press(result.state, k, buf, register);
   const change = result.change && keys;
   return { ...result, effects: copying(result.effects), change };
+}
+
+/**
+ * Split a change's keys into the keys without counts and their total count,
+ * so `.` can put its own count in: `d3w` is `dw` with count 3.
+ */
+export function uncounted(keys: readonly string[]): {
+  keys: string[];
+  count?: number;
+} {
+  const out: string[] = [];
+  let count: number | undefined;
+  let i = 0;
+  const digits = () => {
+    let run = "";
+    while (i < keys.length && /^[0-9]$/.test(keys[i])) {
+      if (run === "" && keys[i] === "0") break;
+      run += keys[i++];
+    }
+    if (run) count = Math.min((count ?? 1) * Number(run), MAX_COUNT);
+  };
+  // Counts come first, after a register, and after an operator.
+  digits();
+  while (keys[i] === '"' && i + 1 < keys.length) {
+    out.push(keys[i], keys[i + 1]);
+    i += 2;
+    digits();
+  }
+  const op = OPERATORS.find((o) => keys.slice(i, i + o.length).join("") === o);
+  if (op) {
+    out.push(...keys.slice(i, i + op.length));
+    i += op.length;
+    digits();
+  }
+  out.push(...keys.slice(i));
+  return { keys: out, count };
+}
+
+/** Whether a command takes a count, like `dw` or `x` but not `i` or `o`. */
+export function countable(keys: readonly string[]): boolean {
+  let i = 0;
+  while (keys[i] === '"') i += 2;
+  return parse(["2", ...keys.slice(i)]) !== "invalid";
+}
+
+/**
+ * What an INSERT session did, relative to where it started: how many
+ * characters it deleted before and after that spot, and the text it left.
+ */
+export type Typed = { back: number; forward: number; text: string };
+
+export function typed(before: Buffer, after: Buffer): Typed {
+  const old = before.lines.join("\n");
+  const now = after.lines.join("\n");
+  const offset = offsetOf(before.lines, before.cursor);
+  // The common prefix ends at the start spot at the latest, and the common
+  // suffix starts there at the earliest, so typing at that spot stays typing.
+  let prefix = 0;
+  while (prefix < Math.min(offset, now.length) && old[prefix] === now[prefix])
+    prefix++;
+  let suffix = 0;
+  const most = Math.min(old.length - offset, now.length - prefix);
+  while (
+    suffix < most &&
+    old[old.length - 1 - suffix] === now[now.length - 1 - suffix]
+  )
+    suffix++;
+  return {
+    back: offset - prefix,
+    forward: old.length - suffix - offset,
+    text: now.slice(prefix, now.length - suffix),
+  };
+}
+
+/** Do what an INSERT session did again at the cursor, `times` times. */
+export function retype(buf: Buffer, edit: Typed, times = 1): Effect[] {
+  const total = buf.lines.join("\n").length;
+  const offset = offsetOf(buf.lines, buf.cursor);
+  const start = Math.max(0, offset - edit.back);
+  const end = Math.min(total, offset + edit.forward);
+  const from = posOf(buf.lines, start);
+  const to = posOf(buf.lines, end);
+  if (end > start && touches(buf, { from, to, linewise: false }))
+    return [{ kind: "refuse" }];
+  const text = edit.text.repeat(times);
+  if (!text && end === start) return [];
+  const cursor = posOf(splice(buf.lines, from, to, text), start + text.length);
+  return [{ kind: "replace", from, to, text, cursor }];
+}
+
+function offsetOf(lines: readonly string[], pos: Pos): number {
+  let offset = pos.col;
+  for (let n = 0; n < pos.line; n++) offset += lines[n].length + 1;
+  return offset;
+}
+
+function posOf(lines: readonly string[], offset: number): Pos {
+  let line = 0;
+  while (line < lines.length - 1 && offset > lines[line].length) {
+    offset -= lines[line].length + 1;
+    line++;
+  }
+  return { line, col: Math.min(offset, lines[line].length) };
+}
+
+/** The size of a Visual selection, for `.` to select the same again. */
+export type Extent = {
+  mode: Mode;
+  lines: number;
+  /** Characters on a one-line charwise selection, block width otherwise. */
+  width: number;
+  /** End column of a multi-line charwise selection. */
+  col: number;
+  dollar?: boolean;
+};
+
+export function extent(state: State, buf: Buffer): Extent | undefined {
+  const anchor = state.anchor;
+  if (!anchor || !isVisual(state.mode)) return undefined;
+  const range = selection(state, buf) as Range;
+  const lines = Math.abs(buf.cursor.line - anchor.line) + 1;
+  if (state.mode === "vblock") {
+    const { left, right } = blockBounds(state, buf);
+    return {
+      mode: "vblock",
+      lines,
+      width: right - left,
+      col: 0,
+      dollar: state.dollar,
+    };
+  }
+  const text = buf.lines[range.from.line].slice(range.from.col, range.to.col);
+  const width = lines === 1 ? Math.max(1, clusters(text).length) : 0;
+  const end = clamp(buf, {
+    line: range.to.line,
+    col: Math.max(0, range.to.col - 1),
+  });
+  return { mode: state.mode, lines, width, col: end.col };
+}
+
+/** Select an extent again, starting at the cursor, the way Vim's `.` does. */
+export function reselect(
+  extent: Extent,
+  buf: Buffer,
+): { state: State; cursor: Pos } {
+  const { cursor, lines } = buf;
+  const line = Math.min(lines.length - 1, cursor.line + extent.lines - 1);
+  const state: State = {
+    mode: extent.mode,
+    keys: [],
+    anchor: cursor,
+    dollar: extent.dollar,
+  };
+  if (extent.mode === "vline")
+    return { state, cursor: { line, col: cursor.col } };
+  if (extent.mode === "vblock") {
+    const v = vcolOf(buf, cursor).v + Math.max(1, extent.width) - 1;
+    const col = colAt(buf, line, v);
+    return { state, cursor: clamp(buf, { line, col }) };
+  }
+  if (extent.lines > 1)
+    return { state, cursor: clamp(buf, { line, col: extent.col }) };
+  const spans = clusters(lines[cursor.line], buf.pastes);
+  const ci = clusterIndex(spans, cursor.col);
+  const end = spans[Math.min(spans.length - 1, ci + extent.width - 1)];
+  return { state, cursor: { line, col: end?.start ?? cursor.col } };
 }
 
 /** Yanks in `effects`, made to copy to the system clipboard too. */
@@ -918,7 +1085,7 @@ const COUNTED = new Set("hjklwbeWBEG;,fFtTg");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
 const EDITS = new Set([..."iaIAoOxXsSDCYJpPu.~R", CTRL_R]);
-const COUNTED_EDITS = new Set("xXsJpP~");
+const COUNTED_EDITS = new Set("xXsJpP~.r");
 const CHANGES = new Set([
   "R",
   "X",
@@ -1040,7 +1207,7 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
     i++;
     if (key !== "r") return { kind: "edit", key, count: n };
     if (i >= keys.length) return "pending";
-    return { kind: "edit", key, arg: keys[i++] };
+    return { kind: "edit", key, arg: keys[i++], count: n };
   }
   return motion(n);
 }
@@ -1193,12 +1360,17 @@ function edit(
     case "Y":
       return operate("y", wholeLine(), buf);
     case "r": {
-      const span = spans[ci];
-      if (!span || !command.arg) return [];
-      if (touchesMarker(line, span.start, span.end, buf.pastes))
+      // `{n}r{c}` needs n characters left on the line, as in Vim.
+      const n = command.count ?? 1;
+      const last = spans[ci + n - 1];
+      if (!last || !command.arg) return [];
+      const start = spans[ci].start;
+      if (touchesMarker(line, start, last.end, buf.pastes))
         return [{ kind: "refuse" }];
-      const from = here(span.start);
-      return replace(buf, from, here(span.end), command.arg, from, "normal");
+      const from = here(start);
+      const to = here(last.end);
+      const cursor = here(start + command.arg.length * (n - 1));
+      return replace(buf, from, to, command.arg.repeat(n), cursor, "normal");
     }
     case "D":
     case "C": {
@@ -1227,7 +1399,7 @@ function edit(
     case "R":
       return [{ kind: "mode", mode: "replace" }];
     case ".":
-      return [{ kind: "repeat" }];
+      return [{ kind: "repeat", count: command.count }];
   }
   return [];
 }

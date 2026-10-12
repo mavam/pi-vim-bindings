@@ -173,6 +173,9 @@ test('puts the system clipboard with "+p unless the prompt changed', async () =>
   type('"', "+", "2", "p");
   await Bun.sleep(0);
   expect(editor.getText()).toBe("\ntwo\ntwo");
+  type(".");
+  await Bun.sleep(0);
+  expect(editor.getText()).toBe("\ntwo\ntwo\ntwo\ntwo");
   editor.setText("abc");
   type("0", '"', "+", "p", "x");
   await Bun.sleep(0);
@@ -205,6 +208,25 @@ test("runs queued clipboard puts in order, and drops stale ones", async () => {
   type('"', "+", "p", "l", "h");
   await answer("3");
   expect(editor.getText()).toBe("a12bc");
+});
+
+test("repeats Visual changes on a selection of the same size", () => {
+  const { editor, type } = setup();
+  editor.setText("abcdefgh\na\nb\nc\nd");
+  type("\x1b", "g", "g", "0", "v", "l", "l", "d", "l", ".");
+  expect(editor.getText().split("\n")[0]).toBe("dh");
+  type("j", "0", "\x16", "j", "I", "-", " ", "\x1b", "j", "j", "0", ".");
+  expect(editor.getText()).toBe("dh\n- a\n- b\n- c\n- d");
+});
+
+test("repeats INSERT edits with their pasted blocks and counts", () => {
+  const { editor, type } = setup();
+  editor.setText("a b");
+  const paste = `\x1b[200~${"x\n".repeat(12)}\x1b[201~`;
+  type("\x1b", "0", "i", paste, "\x1b", "w", "w", "2", ".");
+  expect(editor.getExpandedText()).toBe(
+    `${"x\n".repeat(12)}a ${"x\n".repeat(24)}b`,
+  );
 });
 
 test("hands Esc and Enter in NORMAL mode to Pi", () => {

@@ -104,6 +104,7 @@ test.each([
   // Edits and put
   ["|abc", "2x", "|c"],
   ["|abc", "rx", "|xbc"],
+  ["|abcd", "3rx", "xx|xd"],
   ["a|bc", "D", "|a"],
   ["a|bc", "Cx", "ax| -- insert"],
   ["|ab", "xp", "b|a"],

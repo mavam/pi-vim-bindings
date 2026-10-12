@@ -73,3 +73,8 @@ export function width(cluster: string): number {
     return cluster.length;
   return WIDE.test(cluster) ? 2 : 1;
 }
+
+/** `text` with each known paste marker replaced by the pasted content. */
+export function expand(text: string, pastes: ReadonlyMap<number, string>) {
+  return text.replace(MARKER, (match, id) => pastes.get(Number(id)) ?? match);
+}

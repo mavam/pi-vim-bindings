@@ -46,8 +46,8 @@ shadowed by Vim.
 
 Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; ,`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
-deletes six words), and on `x`, `X`, `s`, `J`, `~`, `p`, and `P`. Not on text
-objects, `%`, or `.`.
+deletes six words), on `x`, `X`, `s`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on
+text objects or `%`.
 
 ### Enter INSERT
 
@@ -120,7 +120,7 @@ Any operator whose range touches a paste marker is refused with a notice.
 | `p` / `P` / `{n}p` | Put after / before, `n` times; linewise text goes below / above the line |
 | `u` | Undo one whole change: `ciwfoo<Esc>` or `ihello world<Esc>` is one step |
 | `Ctrl-R` | Redo what `u` undid, with the cursor at the start of the change. Any edit, including typing, a paste, or a submit, forgets what can be redone |
-| `.` | Repeat the last change, including text typed in INSERT mode |
+| `.` / `{n}.` | Repeat the last change; see [Repeat](#6-repeat) |
 
 ### Quitting Pi
 
@@ -169,9 +169,29 @@ Esc, and only if it's a single line. A yanked or deleted block puts back as a
 block: `p` / `P` insert it column by column, starting at the cursor.
 
 Block columns are display columns, so wide characters count twice. `u` undoes
-any Visual change in one step. `.` doesn't repeat Visual changes.
+any Visual change in one step, and `.` repeats it on a selection of the same
+size.
 
-## 6. Registers and the system clipboard
+## 6. Repeat
+
+`.` repeats the last change: any NORMAL command that edits, a Visual change,
+or a session in INSERT or REPLACE mode with what you typed in it. It's one
+undo step.
+
+- **Counts:** `{n}.` replaces the change's own count, so `d3w` then `2.` is
+  `d2w`. For changes without a count, like `i`, `a`, `o`, or `R`, it repeats
+  the typed text `n` times; `o` and `O` open `n` lines.
+- **INSERT mode:** `.` repeats what the session did where it started: the
+  text left there and what Backspace or Delete removed around it, including
+  text from before you started. A cursor move in INSERT mode, with arrows or
+  a click, starts over from there, as in Vim, so `.` repeats only what you
+  typed after it. Pasted blocks are repeated with their content.
+- **Visual changes** are repeated on a selection of the same size that starts
+  at the cursor: as many characters on one line, as many lines, or a block as
+  wide and tall, as in Vim. Block `I` and `A` insert on every line again.
+- **`"+p`** reads the system clipboard again.
+
+## 7. Registers and the system clipboard
 
 One unnamed register inside the extension, plain text plus a linewise flag.
 `d`, `c`, `x`, `s`, `y` write it; `p`/`P` read it. Visual block deletes and
@@ -206,13 +226,14 @@ How `"+p` treats the clipboard:
 - Reading is asynchronous, so typing never waits for it. If anything changes
   the prompt, cursor, or mode before the text arrives, even if it changes
   back, nothing is put. Several `"+p` in a row put one after another, in
-  order. Each put is one undo step and isn't repeated by `.`.
+  order. Each put is one undo step; `.` reads the clipboard again and puts
+  that.
 - Line breaks become `\n` and tabs four spaces, as in Pi. A read gives up
   after two seconds or 10 MB.
 - Clipboard text that contains a pasted-block marker (`[paste #1 +3 lines]`)
   is refused, since it would put that block's content.
 
-## 7. Differences from Vim
+## 8. Differences from Vim
 
 Deliberate, to keep the scope small:
 
@@ -229,9 +250,8 @@ Deliberate, to keep the scope small:
   outside Vim (Pi's history, another extension, `Ctrl-H`) ends Visual mode.
 - **Words and case:** CJK characters are word characters like letters; `~`,
   `gu`, and `gU` use JavaScript's Unicode case mapping.
-- **`.`** repeats text typed in INSERT mode only if it was a plain insertion at
-  one spot. Block `I`, `A`, and `c` copy typed text to the other lines only if
-  it's a single line without pasted blocks.
+- **Block `I`, `A`, and `c`** copy typed text to the other lines only if it's
+  a single line without pasted blocks, as Vim does for single lines.
 - **Pasted blocks:** `J`, `>`, and `<` keep them; other edits that touch one
   are refused.
 - **Replace mode:** no counts (`3R`) or `gR`. Backspace doesn't remove a line
@@ -244,7 +264,7 @@ Deliberate, to keep the scope small:
   plain `p`.
 - **Indent** is two spaces. **Clipboard** copies are best effort.
 
-## 8. Cut from v0.1
+## 9. Cut from v0.1
 
 Candidates for later, roughly by demand:
 
@@ -253,10 +273,10 @@ Candidates for later, roughly by demand:
 Not planned: `jj`/`jk` escape (pi-vim #45).
 
 Out of scope: search, `{ }`, named registers, macros, marks, `{n}R`, `gR`, Ex commands
-beyond quitting, remapping, history on `j`/`k`, `.` for Visual changes, `>`/`<` with
+beyond quitting, remapping, history on `j`/`k`, `>`/`<` with
 motions, a configurable indent width.
 
-## 9. Configuration
+## 10. Configuration
 
 Settings go in Pi's `settings.json` (global or project):
 
@@ -281,7 +301,7 @@ loses focus or Pi yields the terminal, the shape resets with DECSCUSR 0
 shape is not queried. Returning to the prompt reapplies the current mode's
 shape. Shutdown and reload also reset it.
 
-## 10. Decisions
+## 11. Decisions
 
 | Question | Decision |
 | --- | --- |

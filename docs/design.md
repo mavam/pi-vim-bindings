@@ -375,12 +375,20 @@ are installed.
   click, paste, or Pi key that moves the cursor or edits starts both over, as
   the decorator detects by comparing the editor with what its last Replace key
   left. The session is one change for undo, like INSERT.
-- **Per editor, for `.`:** the keys of the last change, which the engine
-  reports as `Result.change`, plus the text typed before Esc. That text is the
-  difference between the buffer when INSERT mode started and at Esc, if it's a
-  plain insertion at the start cursor; otherwise, or if it contains a paste
-  marker, `.` has nothing to repeat. Replaying runs the keys through the
-  engine, inserts the text, and collapses the result into one undo step.
+- **Per editor, for `.`:** a `Change`: the keys of the last change without
+  their count (the engine's `uncounted()`), the count, and what the keys alone
+  don't say. For a Visual change, the selection's `Extent` (mode, lines, and
+  width or end column), which the engine's `reselect()` turns into a new
+  selection at the cursor. For INSERT mode, a `Typed` edit from the engine's
+  `typed()`: characters deleted before and after where typing started, and
+  the text left there, found as the difference between the editor at the
+  start and at Esc, with paste markers expanded to their content. A cursor
+  move without an edit during INSERT (arrows, a click) starts that over. For
+  REPLACE mode, the session's keys. Replaying runs the keys through the
+  engine, applies the edit with `retype()` or the Replace keys, replicates a
+  block insert, and collapses everything into one undo step. `{n}.` puts `n`
+  in as the count if the command takes one (`countable()`), else repeats the
+  typed text `n` times.
 - **Visual block:** columns are display columns. The port passes `pi-tui`'s
   `visibleWidth` as `Buffer.measure`, so they agree with what Pi renders; the
   engine stays pure and falls back to a small wide-character table in

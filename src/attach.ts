@@ -16,9 +16,12 @@ import {
   CTRL_R,
   CTRL_V,
   clamp,
+  countable,
   type Effect,
+  type Extent,
   esc,
   ex,
+  extent,
   initial,
   isVisual,
   type LineSpan,
@@ -29,12 +32,17 @@ import {
   putText,
   type Register,
   replicate,
+  reselect,
+  retype,
   type State,
   selectedSpans,
+  type Typed,
+  typed,
+  uncounted,
   untype,
 } from "./engine.js";
 import { type Layout, portFor } from "./port.js";
-import { markers } from "./text.js";
+import { expand, markers } from "./text.js";
 
 /** State shared by all decorated editors of one extension instance. */
 export type Shared = {
@@ -105,13 +113,25 @@ export function attach(
   let undone = "";
   let seenText = "";
   let pasting = false;
-  // The change being typed in INSERT mode, entered from NORMAL or Visual
-  // mode. Without `keys`, it isn't repeatable with `.`.
+  // A change for `.`: its keys without their count, and what the keys
+  // alone don't say: the size of a Visual selection it acted on, what it did
+  // in INSERT mode, or its keys in REPLACE mode.
+  type Change = {
+    keys: readonly string[];
+    count?: number;
+    visual?: Extent;
+    typed?: Typed;
+    actions?: (string | null)[];
+  };
+  // The change being typed in INSERT or REPLACE mode, entered from NORMAL or
+  // Visual mode; without `change`, `.` won't repeat it. `buf` is the editor
+  // where typing started, `at` the editor as the last key left it.
   let open:
     | {
-        keys?: readonly string[];
+        change?: Change;
         depth: number;
         buf: Buffer;
+        at: Buffer;
         block?: BlockInsert;
       }
     | undefined;
@@ -129,9 +149,7 @@ export function attach(
   };
   const typing = () => state.mode === "insert" || state.mode === "replace";
   // The last completed change, for `.`.
-  let last:
-    | { keys: readonly string[]; text: string; actions?: (string | null)[] }
-    | undefined;
+  let last: Change | undefined;
 
   const run = (effects: readonly Effect[]) => {
     for (const effect of effects) {
@@ -152,7 +170,7 @@ export function attach(
         else if (!port.redo()) shared.notify("Nothing to redo.", "info");
         undone = port.read().lines.join("\n");
       }
-      if (effect.kind === "repeat") repeat();
+      if (effect.kind === "repeat") repeat(effect.count);
       if (effect.kind === "clipboard")
         putClipboard(effect.before, effect.count);
       if (effect.kind === "message") shared.notify(effect.text, "info");
@@ -172,78 +190,129 @@ export function attach(
   // Run keys in NORMAL mode and track the change they make, if any.
   const perform = (key: string) => {
     const depth = port.undoDepth();
-    const result = press(state, key, port.read(), shared.register);
+    const before = state;
+    const buf = port.read();
+    const result = press(state, key, buf, shared.register);
     if (isVisual(result.state.mode) && !port.layout) {
       shared.notify("Visual mode isn't supported by this Pi version.", "info");
       return;
     }
     state = result.state;
     run(result.effects);
-    const { change, block } = result;
+    let change: Change | undefined;
+    if (result.change) change = uncounted(result.change);
+    else if (isVisual(before.mode) && !isVisual(state.mode)) {
+      // A Visual change: remember the selection's size along with the keys.
+      const edits = result.effects.some(
+        (e) => e.kind === "replace" || e.kind === "mode",
+      );
+      const size = extent(before, buf);
+      if (edits && size) change = { keys: [...before.keys, key], visual: size };
+    }
     if (state.mode === "replace") restart();
-    if (typing()) open = { keys: change, depth, buf: port.read(), block };
-    else {
-      if (change) last = { keys: change, text: "" };
+    if (typing()) {
+      const now = port.read();
+      open = {
+        change,
+        depth,
+        buf: now,
+        at: now,
+        block: result.block,
+      };
+    } else {
+      if (change) last = change;
       // Edits spanning several lines are still one undo step.
       if (port.undoDepth() > depth + 1) port.collapseUndo(depth);
     }
   };
 
-  // Leave INSERT mode: one undo step and one `.` for the whole change.
+  // Leave INSERT or REPLACE mode: one undo step and one `.` for the change.
   // Returns true if it placed the cursor itself (after a block insert).
   const close = (): boolean => {
     if (!open) return false;
-    const typed = insertion(open.buf, port.read());
-    const plain = typed !== undefined && !markers(typed).length;
-    const copied = Boolean(
-      open.block && typed && plain && !typed.includes("\n"),
-    );
+    const now = port.read();
+    const raw = insertion(open.buf, now);
+    const plain = raw !== undefined && !markers(raw).length;
+    const copied = Boolean(open.block && raw && plain && !raw.includes("\n"));
     if (open.block && copied)
-      run(replicate(open.block, typed as string, port.read()));
-    else if (open.block && typed && !plain)
+      run(replicate(open.block, raw as string, port.read()));
+    else if (open.block && raw && !plain)
       shared.notify("Pasted blocks aren't copied to the other lines.", "info");
-    if (open.keys && state.mode === "replace")
-      last = { keys: open.keys, text: "", actions: [...actions] };
-    else if (open.keys) {
-      last =
-        typed !== undefined && !markers(typed).length
-          ? { keys: open.keys, text: typed }
-          : undefined;
+    if (open.change && state.mode === "replace")
+      last = { ...open.change, actions: [...actions] };
+    else if (open.change) {
+      // Repeat pasted blocks with their content, not their markers.
+      const edit = typed(open.buf, now);
+      last = {
+        ...open.change,
+        typed: { ...edit, text: expand(edit.text, port.pastes()) },
+      };
     }
     if (port.undoDepth() > open.depth) port.collapseUndo(open.depth);
     open = undefined;
     return copied;
   };
 
-  const repeat = () => {
-    if (!last) return;
-    const { keys, text, actions: replay } = last;
+  // In INSERT mode, a cursor move without an edit (arrows, a click) starts
+  // the change over from there, as in Vim; `.` then repeats only the rest.
+  const rebase = (buf: Buffer) => {
+    if (!open || state.mode !== "insert") return;
+    const { at } = open;
+    const same = buf.lines.join("\n") === at.lines.join("\n");
+    const moved =
+      buf.cursor.line !== at.cursor.line || buf.cursor.col !== at.cursor.col;
+    if (same && moved) {
+      open = { ...open, buf, block: undefined };
+      if (open.change) open.change = { keys: ["i"] };
+    }
+    open.at = buf;
+  };
+
+  // `.`: run the last change again. A count replaces its own count; for
+  // commands without counts, like `i`, `o`, and `R`, it repeats the text.
+  const repeat = (count?: number) => {
+    const change = last;
+    if (!change) return;
     const depth = port.undoDepth();
+    const counted = !change.visual && countable(change.keys);
+    const n = count ?? change.count;
+    const keys =
+      counted && n !== undefined ? [...String(n), ...change.keys] : change.keys;
+    const times = count !== undefined && !counted ? count : 1;
+    const opens = change.keys[0] === "o" || change.keys[0] === "O";
+    for (let k = 0; k < (opens ? times : 1); k++)
+      replay(change, keys, opens ? 1 : times);
+    last = change;
+    if (port.undoDepth() > depth) port.collapseUndo(depth);
+  };
+
+  const replay = (change: Change, keys: readonly string[], times: number) => {
+    if (change.visual) {
+      const { state: selected, cursor } = reselect(change.visual, port.read());
+      port.setCursor(cursor);
+      state = selected;
+    }
     for (const key of keys) perform(key);
+    const started = open;
     open = undefined;
     if (state.mode === "replace") {
-      for (const action of replay ?? [])
-        action === null ? backspace() : overtypeKey(action);
-      const result = esc(state, port.read());
-      state = result.state;
-      run(result.effects);
-    } else if (state.mode === "insert") {
-      const { cursor } = port.read();
-      const lines = text.split("\n");
-      const end =
-        lines.length === 1
-          ? { line: cursor.line, col: cursor.col + text.length }
-          : {
-              line: cursor.line + lines.length - 1,
-              col: lines.at(-1)?.length ?? 0,
-            };
-      if (text) port.replace(cursor, cursor, text, end);
+      for (let k = 0; k < times; k++)
+        for (const action of change.actions ?? [])
+          action === null ? backspace() : overtypeKey(action);
+    } else if (state.mode === "insert" && change.typed) {
+      run(retype(port.read(), change.typed, times));
+      const { back, forward, text } = change.typed;
+      if (started?.block && !back && !forward && text && !text.includes("\n")) {
+        run(replicate(started.block, text, port.read()));
+        state = { mode: "normal", keys: [], find: state.find };
+        return;
+      }
+    }
+    if (typing()) {
       const result = esc(state, port.read());
       state = result.state;
       run(result.effects);
     }
-    last = { keys, text, actions: replay };
-    if (port.undoDepth() > depth) port.collapseUndo(depth);
   };
 
   // Something else changed the editor since our last key. A moved cursor
@@ -332,7 +401,8 @@ export function attach(
       port.clearRedo();
     // Pi's own undo went below the change's start: restart it from here.
     if (open && port.undoDepth() < open.depth) {
-      open = { depth: port.undoDepth(), buf: port.read() };
+      const now = port.read();
+      open = { depth: port.undoDepth(), buf: now, at: now };
     }
     if (before !== "" && port.read().lines.join("\n") === "") {
       state = initial;
@@ -371,7 +441,12 @@ export function attach(
       state = result.state;
       return settle();
     }
-    if (state.mode === "insert") return forward(data, buf);
+    if (state.mode === "insert") {
+      rebase(buf);
+      forward(data, buf);
+      if (open) rebase(port.read());
+      return;
+    }
     if (state.mode === "replace") {
       // A click or another extension changed things since our last key.
       if (fingerprint(buf) !== replaceSeen) restart();

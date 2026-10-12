@@ -22,6 +22,8 @@ export type Port = {
   /** Merge all undo steps after `depth + 1` into that one step. */
   collapseUndo(depth: number): void;
   autocompleteOpen(): boolean;
+  /** The content of each pasted block, by id. */
+  pastes(): ReadonlyMap<number, string>;
   closeAutocomplete(): void;
   /** End Pi's pending character jump (`Ctrl-]`), if any. */
   cancelJump(): void;
@@ -176,6 +178,7 @@ export function portFor(editor: object): Port | undefined {
       while (e.undoStack.length > depth + 1) e.undoStack.pop();
     },
     autocompleteOpen: () => e.isShowingAutocomplete(),
+    pastes: () => new Map(e.pastes),
     closeAutocomplete: () => e.cancelAutocomplete(),
     cancelJump: () => {
       if ("jumpMode" in e) e.jumpMode = null;
