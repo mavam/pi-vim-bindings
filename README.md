@@ -125,7 +125,7 @@ based on reading their source as of October 2026:
 | Keeps Pi's editor | ✅ | ❌ replaces it | ❌ replaces it | ❌ replaces it | ❌ replaces it | ❌ replaces it |
 | Works with other editor extensions | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Inline working indicator | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V` `Ctrl-V`¹ |
+| Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V` `Ctrl-V` |
 | Operators | `d` `c` `y` `gu` `gU` | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` | limited | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` |
 | Text objects | word, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
@@ -137,8 +137,6 @@ based on reading their source as of October 2026:
 | System clipboard | yanks | both ways | yanks | ❌ | ❌ | both ways |
 | Ex commands | `:q` | Pi commands | Pi commands | ❌ | ❌ | Pi commands, editing |
 | Cursor shape per mode | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ |
-
-¹ Needs configuration.
 
 ## ⚙️ Configuration
 
