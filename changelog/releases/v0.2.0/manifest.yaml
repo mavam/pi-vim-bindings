@@ -1,0 +1,9 @@
+created: 2026-10-12
+title: Replace mode, redo, and clipboard registers
+intro: >-
+  Pi Vim Editor now has Replace mode, Ctrl-R redo, and the "+ and "* registers for
+  using the system clipboard both ways. You can also show the editing mode through
+  the cursor shape.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.1.1
