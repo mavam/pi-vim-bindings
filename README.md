@@ -34,10 +34,11 @@ starts Visual block mode instead of pasting an image, and `Ctrl-]`.
 
 | Key | Action |
 | --- | --- |
-| `Esc` / `Ctrl-[` | INSERT → NORMAL; closes autocomplete first if it's open |
+| `Esc` / `Ctrl-[` | INSERT or REPLACE → NORMAL; closes autocomplete first if it's open |
 | `Esc` in NORMAL | Cancels a pending command, otherwise interrupts the agent as usual |
 | `i` `a` / `I` `A` | INSERT before / after the cursor, at the first non-blank / line end |
 | `o` / `O` | Open a line below / above |
+| `R` | REPLACE: typed characters overwrite; Backspace restores |
 | `v` / `V` / `Ctrl-V` | Visual, Visual line, Visual block |
 
 After you submit a prompt, the editor is back in INSERT mode.
@@ -130,7 +131,7 @@ based on reading their source as of October 2026:
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `.` repeat | ⚠️ partial | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
 | `Ctrl-R` redo | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Replace mode `R` | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | System clipboard | yanks | both ways | yanks | ❌ | ❌ | both ways |
