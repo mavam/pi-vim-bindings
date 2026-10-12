@@ -1,0 +1,8 @@
+created: 2026-10-12
+title: Pi Vim Editor on npm
+intro: >-
+  This release publishes Pi Vim Editor to npm. It's identical to v0.1.0, which reached
+  GitHub but not npm.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.1.0
