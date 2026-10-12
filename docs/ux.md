@@ -271,14 +271,15 @@ working indicator; when a border has no room, the label is left out.
 Set `"vimEditor": { "cursorShape": true }` and `"showHardwareCursor": true`
 to use steady cursor shapes: bar in INSERT, block in NORMAL and all Visual
 modes, underline in REPLACE. Cursor shapes are off by default and never
-change Pi’s hardware-cursor visibility setting. When the hardware cursor is
-hidden, Pi’s software cursor stays unchanged. Visual selections remain
+change Pi's hardware-cursor visibility setting. When the hardware cursor is
+hidden, Pi's software cursor stays unchanged. Visual selections remain
 highlighted when the hardware cursor is shown.
 
 The terminal and any multiplexer must support DECSCUSR. When the prompt
 loses focus or Pi yields the terminal, the shape resets with DECSCUSR 0
-(typically blinking block); the previous terminal shape is not queried. Returning to the prompt
-reapplies the current mode’s shape. Shutdown and reload also reset it.
+(the terminal's default; a blinking block in xterm); the previous terminal
+shape is not queried. Returning to the prompt reapplies the current mode's
+shape. Shutdown and reload also reset it.
 
 ## 10. Decisions
 

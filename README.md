@@ -156,7 +156,7 @@ based on reading their source as of October 2026:
 | Ex commands | `:q` | Pi commands | Pi commands | ❌ | ❌ | Pi commands, editing |
 | Cursor shape per mode | ✅ opt-in¹ | ✅ | ✅ | ✅ | ❌ | ✅ |
 
-¹ Requires Pi’s hardware cursor and a terminal that supports cursor shapes.
+¹ Requires Pi's hardware cursor and a terminal that supports cursor shapes.
 
 ## ⚙️ Configuration
 
@@ -184,7 +184,7 @@ software cursor stays unchanged.
 
 Cursor shapes require DECSCUSR support in your terminal and, if used, tmux
 or another multiplexer. Disable `cursorShape` if your terminal ignores the
-sequences. The extension resets the shape with DECSCUSR 0 (typically a blinking
-block) when the prompt loses focus, Pi opens an external editor or suspends,
+sequences. The extension resets the shape with DECSCUSR 0, the terminal's
+default (a blinking block in xterm), when the prompt loses focus, Pi opens an external editor or suspends,
 or the extension shuts down or reloads. It does not query or restore your
 pre-Pi cursor shape.

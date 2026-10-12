@@ -97,7 +97,8 @@ Four members on the **instance**, each delegating to the value it replaced
 
 A controller is stored under `Symbol.for("pi-vim-editor")`; a second
 `attach()` on the same instance is a no-op. There's no `detach()`: removing
-patched members could remove a later wrapper.
+patched members could remove a later wrapper. Opt-in cursor shapes also
+decorate `focused` and the terminal, with their own cleanup (§7).
 
 If the instance lacks `getLines`, `getCursor`, or any capability from §6, we
 don't patch it and notify once.
@@ -315,7 +316,7 @@ Border widgets (open Pi PR #10602) could replace the patch later. Not designed
 for now.
 
 NORMAL clamps the cursor onto a character. By default, the cursor remains
-Pi’s reverse-video block, with no terminal escapes from this extension.
+Pi's reverse-video block, with no terminal escapes from this extension.
 
 With `vimEditor.cursorShape: true`, `cursor.ts` uses DECSCUSR 6 (steady bar)
 in INSERT, 2 (steady block) in NORMAL/Visual, and 4 (steady underline) in
@@ -325,14 +326,15 @@ and the focused editor emits `CURSOR_MARKER`. Before Visual highlighting,
 it removes the opening reverse-video SGR immediately after that marker,
 leaving the cell, marker, and style reset intact.
 
-The cursor controller decorates the editor’s public `focused` property,
+The cursor controller decorates the editor's public `focused` property,
 composing with existing accessors, to reset on focus loss even when a dialog
-unmounts the editor. It wraps the public terminal’s `stop()` and `start()`
+unmounts the editor. It wraps the public terminal's `stop()` and `start()`
 to reset before external-editor or suspend handoff and reapply on resume.
 While stopped, it leaves renders alone: fullscreen renders the transcript
 after stopping. The terminal survives renderer switches; the TUI reference
 itself is a moving proxy and must not be patched. Reset uses DECSCUSR 0
-(typically blinking block), not a snapshot of the previous terminal shape.
+(the terminal's default; a blinking block in xterm), not a snapshot of the
+previous terminal shape.
 
 Factory replacement and `session_shutdown` dispose the controller. Cleanup
 restores only wrappers it still owns; wrappers retained by later extensions

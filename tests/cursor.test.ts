@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  CURSOR_MARKER,
+  TuiAltScreen,
+  TuiMainScreen,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { attach } from "../src/attach.ts";
 import { cursorFor } from "../src/cursor.ts";
 import { keybindings, theme, tui } from "./fixtures.ts";
@@ -195,3 +201,79 @@ test.each(["get", "set"] as const)(
     expect(writes).toEqual(["\x1b[6 q", "\x1b[0 q", "stop"]);
   },
 );
+
+/** A Pi `Terminal` that records output, with start/stop on the prototype. */
+class RecordingTerminal {
+  output: string[] = [];
+  columns = 40;
+  rows = 10;
+  kittyProtocolActive = false;
+  start() {
+    this.output.push("start");
+  }
+  stop() {
+    this.output.push("stop");
+  }
+  async drainInput() {}
+  write(data: string) {
+    this.output.push(data);
+  }
+  hideCursor() {}
+  showCursor() {}
+  moveBy() {}
+  clearLine() {}
+  clearFromCursor() {}
+  clearScreen() {}
+  setTitle() {}
+  setProgress() {}
+  setProgramStatus() {}
+}
+
+test.each([
+  ["regular", TuiMainScreen],
+  ["fullscreen", TuiAltScreen],
+] as const)("works with Pi's %s renderer", (_name, Renderer) => {
+  const terminal = new RecordingTerminal();
+  const ui = new Renderer(terminal as never, true);
+  const kb = keybindings();
+  const editor = new CustomEditor(ui, theme as never, kb);
+  if (ui instanceof TuiAltScreen) {
+    const root = new Container();
+    root.addChild(editor);
+    ui.setLayoutRoot(root);
+  } else ui.addChild(editor);
+  ui.setFocus(editor);
+  ui.start();
+  const cursor = cursorFor(editor, ui);
+  if (!cursor) throw new Error("Expected cursor support for CustomEditor");
+  attach(
+    editor,
+    kb,
+    {
+      register: undefined,
+      notify() {},
+      copy() {},
+      quit() {},
+      position: "bottom-right",
+      paint: (_insert, text) => text,
+    },
+    cursor.render,
+  );
+  ui.renderNow();
+  const frame = terminal.output.findIndex((text) => text.includes("INSERT"));
+  expect(terminal.output.indexOf("\x1b[6 q")).toBeLessThan(frame);
+  expect(terminal.output[frame]).not.toContain("\x1b[7m");
+  editor.handleInput("\x1b");
+  ui.renderNow();
+  expect(terminal.output).toContain("\x1b[2 q");
+  ui.stop();
+  const stop = terminal.output.lastIndexOf("stop");
+  expect(terminal.output[stop - 1]).toBe("\x1b[0 q");
+  // Fullscreen prints the transcript after stopping: Pi's cursor, no shape.
+  const stopped = terminal.output.length;
+  ui.renderNow();
+  expect(terminal.output.slice(stopped).join("")).not.toMatch(/\[\d q/);
+  cursor.dispose();
+  expect(Object.hasOwn(terminal, "start")).toBe(false);
+  expect(Object.hasOwn(terminal, "stop")).toBe(false);
+});

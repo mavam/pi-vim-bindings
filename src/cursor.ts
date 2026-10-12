@@ -29,7 +29,7 @@ export function cursorFor(editor: object, tui: TUI): Cursor | undefined {
   let shape: number | undefined;
   const reset = () => {
     if (shape === undefined) return;
-    // DECSCUSR reset (usually blinking block), not the unknown pre-Pi style.
+    // DECSCUSR 0: the terminal default, not the unknown pre-Pi style.
     terminal.write("\x1b[0 q");
     shape = undefined;
   };
@@ -50,6 +50,9 @@ export function cursorFor(editor: object, tui: TUI): Cursor | undefined {
   // The terminal survives renderer switches; the TUI itself is a moving proxy.
   const start = terminal.start;
   const stop = terminal.stop;
+  // Usually prototype methods: restore by deleting the instance override.
+  const ownStart = Object.getOwnPropertyDescriptor(terminal, "start");
+  const ownStop = Object.getOwnPropertyDescriptor(terminal, "stop");
   const wrappedStart: typeof start = (...args) => {
     start.apply(terminal, args);
     if (!disposed) {
@@ -97,8 +100,8 @@ export function cursorFor(editor: object, tui: TUI): Cursor | undefined {
       disposed = true;
       // Don't remove a later extension's wrapper. Our captured wrappers become
       // inert after disposal if another extension still delegates to them.
-      if (terminal.start === wrappedStart) terminal.start = start;
-      if (terminal.stop === wrappedStop) terminal.stop = stop;
+      if (terminal.start === wrappedStart) restore(terminal, "start", ownStart);
+      if (terminal.stop === wrappedStop) restore(terminal, "stop", ownStop);
       const current = Object.getOwnPropertyDescriptor(editor, "focused");
       if (current?.get === get && current.set === set)
         Object.defineProperty(
@@ -108,4 +111,13 @@ export function cursorFor(editor: object, tui: TUI): Cursor | undefined {
         );
     },
   };
+}
+
+function restore(
+  target: object,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (descriptor) Object.defineProperty(target, key, descriptor);
+  else Reflect.deleteProperty(target, key);
 }
