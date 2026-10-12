@@ -5,7 +5,22 @@ Instead of replacing the editor, it adds INSERT and NORMAL modes to whatever
 editor is installed, so Pi's inline working indicator, autocomplete, paste
 handling, and other editor extensions keep working.
 
-![A prompt is fixed up in Vim modes: Visual block insert turns three file names into a list, ciw fixes a typo, and a Visual selection is changed; after submitting, Pi's working indicator shows in the editor border](https://github.com/mavam/pi-vim-editor/raw/main/demo/vim.gif)
+<table>
+  <tr>
+    <td width="50%"><img src="https://github.com/mavam/pi-vim-editor/raw/main/demo/vim.gif" alt="Visual block insert formats a file list, ciw fixes a typo, and a Visual selection changes the prompt before submission."></td>
+    <td width="50%"><img src="https://github.com/mavam/pi-vim-editor/raw/main/demo/replace.gif" alt="Replace mode overtypes a timeout, Backspace restores a space, dot repeats the edit, and one undo restores the second timeout."></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <strong>Shape prompts with Vim motions</strong><br>
+      <small>Fix a typo, format a list, and rewrite a selection before submitting.</small>
+    </td>
+    <td align="center">
+      <strong>Overtype with Replace mode</strong><br>
+      <small>Replace a value, restore an overtyped character, then repeat and undo.</small>
+    </td>
+  </tr>
+</table>
 
 ## 🚀 Installation
 
