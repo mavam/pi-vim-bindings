@@ -104,6 +104,26 @@ test("doesn't copy pasted blocks to the other lines of a block", () => {
   expect(notes).toHaveLength(1);
 });
 
+test("overwrites in Replace mode, with Backspace, ., and one undo", () => {
+  const { editor, type } = setup();
+  editor.setText("abcd efgh");
+  type("\x1b", "0", "R", "x", "y", "z", "\x7f", "\x1b");
+  expect(editor.getText()).toBe("xycd efgh");
+  type("w", ".");
+  expect(editor.getText()).toBe("xycd xygh");
+  type("u");
+  expect(editor.getText()).toBe("xycd efgh");
+  type("u");
+  expect(editor.getText()).toBe("abcd efgh");
+});
+
+test("doesn't restore in Replace mode after a paste moved things", () => {
+  const { editor, type } = setup();
+  editor.setText("abcd efgh");
+  type("\x1b", "0", "R", "x", "\x1b[200~QQ\x1b[201~", "\x7f");
+  expect(editor.getText()).toBe("xQQbcd efgh");
+});
+
 test("hands Esc and Enter in NORMAL mode to Pi", () => {
   const { editor, type } = setup();
   let interrupted = false;

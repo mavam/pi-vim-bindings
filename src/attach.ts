@@ -21,11 +21,13 @@ import {
   isVisual,
   type LineSpan,
   label,
+  overtype,
   press,
   type Register,
   replicate,
   type State,
   selectedSpans,
+  untype,
 } from "./engine.js";
 import { type Layout, portFor } from "./port.js";
 import { markers } from "./text.js";
@@ -104,8 +106,23 @@ export function attach(
         block?: BlockInsert;
       }
     | undefined;
+  // Replace mode: what each typed character overwrote, for Backspace; the
+  // keys of the session in order (a character, or null for Backspace), for
+  // `.`; and the editor as the last Replace key left it.
+  let overwritten: string[] = [];
+  let actions: (string | null)[] = [];
+  let replaceSeen = "";
+  // Start Replace bookkeeping over, e.g. after a click or a paste.
+  const restart = () => {
+    overwritten = [];
+    actions = [];
+    replaceSeen = fingerprint(port.read());
+  };
+  const typing = () => state.mode === "insert" || state.mode === "replace";
   // The last completed change, for `.`.
-  let last: { keys: readonly string[]; text: string } | undefined;
+  let last:
+    | { keys: readonly string[]; text: string; actions?: (string | null)[] }
+    | undefined;
 
   const run = (effects: readonly Effect[]) => {
     for (const effect of effects) {
@@ -143,8 +160,8 @@ export function attach(
     state = result.state;
     run(result.effects);
     const { change, block } = result;
-    if (state.mode === "insert")
-      open = { keys: change, depth, buf: port.read(), block };
+    if (state.mode === "replace") restart();
+    if (typing()) open = { keys: change, depth, buf: port.read(), block };
     else {
       if (change) last = { keys: change, text: "" };
       // Edits spanning several lines are still one undo step.
@@ -165,7 +182,9 @@ export function attach(
       run(replicate(open.block, typed as string, port.read()));
     else if (open.block && typed && !plain)
       shared.notify("Pasted blocks aren't copied to the other lines.", "info");
-    if (open.keys) {
+    if (open.keys && state.mode === "replace")
+      last = { keys: open.keys, text: "", actions: [...actions] };
+    else if (open.keys) {
       last =
         typed !== undefined && !markers(typed).length
           ? { keys: open.keys, text: typed }
@@ -178,11 +197,17 @@ export function attach(
 
   const repeat = () => {
     if (!last) return;
-    const { keys, text } = last;
+    const { keys, text, actions: replay } = last;
     const depth = port.undoDepth();
     for (const key of keys) perform(key);
     open = undefined;
-    if (state.mode === "insert") {
+    if (state.mode === "replace") {
+      for (const action of replay ?? [])
+        action === null ? backspace() : overtypeKey(action);
+      const result = esc(state, port.read());
+      state = result.state;
+      run(result.effects);
+    } else if (state.mode === "insert") {
       const { cursor } = port.read();
       const lines = text.split("\n");
       const end =
@@ -197,23 +222,39 @@ export function attach(
       state = result.state;
       run(result.effects);
     }
-    last = { keys, text };
+    last = { keys, text, actions: replay };
     if (port.undoDepth() > depth) port.collapseUndo(depth);
   };
 
   // Something else changed the editor since our last key. A moved cursor
   // drops a pending command; changed text also ends Visual mode.
   const reconcile = (buf: Buffer) => {
-    if (state.mode === "insert" || fingerprint(buf) === seen) return;
+    if (typing() || fingerprint(buf) === seen) return;
     if (buf.lines.join("\n") !== seenText && isVisual(state.mode))
       state = { mode: "normal", keys: [], find: state.find };
     else state = { ...state, keys: [] };
   };
 
+  const overtypeKey = (char: string) => {
+    const { effects, original } = overtype(port.read(), char);
+    run(effects);
+    if (original !== undefined) {
+      overwritten.push(original);
+      actions.push(char);
+    }
+    replaceSeen = fingerprint(port.read());
+  };
+
+  const backspace = () => {
+    run(untype(port.read(), overwritten.pop()));
+    actions.push(null);
+    replaceSeen = fingerprint(port.read());
+  };
+
   // Keep the NORMAL-mode cursor on a character, and remember what we saw.
   const settle = () => {
     let buf = port.read();
-    if (state.mode !== "insert") {
+    if (!typing()) {
       const to = clamp(buf, buf.cursor);
       if (to.col !== buf.cursor.col) port.setCursor(to);
       buf = port.read();
@@ -242,6 +283,7 @@ export function attach(
         data.lastIndexOf(PASTE_START) > data.lastIndexOf(PASTE_END) ||
         (pasting && !data.includes(PASTE_END));
       passthrough(data);
+      if (state.mode === "replace") restart();
       return;
     }
     const buf = port.read();
@@ -249,15 +291,30 @@ export function attach(
     if (isEscape(data)) {
       // Pi's character jump would otherwise catch the next key we pass on.
       port.cancelJump();
-      if (state.mode === "insert" && port.autocompleteOpen())
-        return port.closeAutocomplete();
+      if (typing() && port.autocompleteOpen()) return port.closeAutocomplete();
       const result = esc(state, buf);
       if (result.passthrough) passthrough("\x1b");
-      else if (!(state.mode === "insert" && close())) run(result.effects);
+      else if (!(typing() && close())) run(result.effects);
       state = result.state;
       return settle();
     }
     if (state.mode === "insert") return forward(data, buf);
+    if (state.mode === "replace") {
+      // A click or another extension changed things since our last key.
+      if (fingerprint(buf) !== replaceSeen) restart();
+      if (matchesKey(data, "backspace")) return backspace();
+      const text = printable(data);
+      if (text === undefined) {
+        // Other keys go to Pi. If they move the cursor or edit, Backspace and
+        // `.` start over from here, as after arrow keys in Vim.
+        forward(data, buf);
+        if (state.mode !== "replace") return;
+        if (fingerprint(port.read()) !== fingerprint(buf)) restart();
+        return;
+      }
+      for (const { segment } of segmenter.segment(text)) overtypeKey(segment);
+      return;
+    }
     // A pending Ex command takes Enter and Backspace instead of Pi.
     if (state.keys[0] === ":") {
       if (matchesKey(data, "enter")) {

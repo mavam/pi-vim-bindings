@@ -314,6 +314,15 @@ onto a character. No DECSCUSR.
   text only (markers are refused), so it survives submits and editor
   recreation. Yanks are also copied to the system clipboard with Pi's exported
   `copyToClipboard`, best effort; `p` never reads the clipboard.
+- **Replace mode:** printable keys go to the engine's pure `overtype()`,
+  which overwrites the cluster under the cursor or appends at the line end and
+  reports what it overwrote; Backspace goes to `untype()`, which restores it.
+  The decorator keeps that restore stack, plus the session's keys in order
+  (characters, or Backspace) for `.`, which replays them through the same
+  functions so grapheme boundaries and Backspaces past the start survive. A
+  click, paste, or Pi key that moves the cursor or edits starts both over, as
+  the decorator detects by comparing the editor with what its last Replace key
+  left. The session is one change for undo, like INSERT.
 - **Per editor, for `.`:** the keys of the last change, which the engine
   reports as `Result.change`, plus the text typed before Esc. That text is the
   difference between the buffer when INSERT mode started and at Esc, if it's a

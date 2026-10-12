@@ -30,7 +30,13 @@ export type Register = {
   /** Display width of a block, for padding short rows when putting it. */
   width?: number;
 };
-export type Mode = "insert" | "normal" | "visual" | "vline" | "vblock";
+export type Mode =
+  | "insert"
+  | "replace"
+  | "normal"
+  | "visual"
+  | "vline"
+  | "vblock";
 export type Find = { key: string; arg: string };
 /** `anchor` is the fixed end of a Visual selection; the cursor is the other. */
 export type State = {
@@ -85,6 +91,7 @@ const LABELS: Record<Mode, string> = {
   visual: "VISUAL",
   vline: "VISUAL LINE",
   vblock: "VISUAL BLOCK",
+  replace: "REPLACE",
 };
 
 /** The mode indicator: pending keys, or the mode name. */
@@ -208,15 +215,16 @@ export function press(
   if (!found) return { state: done("normal"), effects: [] };
   const { command, find } = found;
   const effects = execute(command, buf, register);
-  const insert = effects.some((e) => e.kind === "mode" && e.mode === "insert");
-  const edits = effects.some((e) => e.kind === "replace") || insert;
+  let mode: Mode = "normal";
+  for (const e of effects) if (e.kind === "mode") mode = e.mode;
+  const edits = effects.some((e) => e.kind === "replace") || mode !== "normal";
   const change =
     edits &&
     ((parsed.kind === "op" && parsed.op !== "y") ||
       (parsed.kind === "edit" && CHANGES.has(parsed.key)))
       ? keys
       : undefined;
-  return { state: done(insert ? "insert" : "normal", find), effects, change };
+  return { state: done(mode, find), effects, change };
 }
 
 /** Visual mode: motions move the cursor; operators act on the selection. */
@@ -743,6 +751,51 @@ function withFind(
   return { command, find };
 }
 
+/**
+ * Replace mode: type `char` over the character under the cursor, or append it
+ * at the end of the line. `original` is what was overwritten ("" if nothing),
+ * for Backspace to restore.
+ */
+export function overtype(
+  buf: Buffer,
+  char: string,
+): { effects: Effect[]; original?: string } {
+  const { cursor, lines } = buf;
+  const line = lines[cursor.line];
+  const span = clusters(line, buf.pastes).find((s) => s.start === cursor.col);
+  if (span && touchesMarker(line, span.start, span.end, buf.pastes))
+    return { effects: [{ kind: "refuse" }] };
+  const to = span ? { line: cursor.line, col: span.end } : cursor;
+  const after = { line: cursor.line, col: cursor.col + char.length };
+  const effects: Effect[] = [
+    { kind: "replace", from: cursor, to, text: char, cursor: after },
+  ];
+  return { effects, original: span ? line.slice(span.start, span.end) : "" };
+}
+
+/**
+ * Backspace in Replace mode: step back over the last typed character and put
+ * `original` back. Without `original`, only move left, as in Vim.
+ */
+export function untype(buf: Buffer, original?: string): Effect[] {
+  const { cursor, lines } = buf;
+  const line = lines[cursor.line];
+  const spans = clusters(line, buf.pastes);
+  let prev: Span | undefined;
+  for (const span of spans) if (span.end <= cursor.col) prev = span;
+  if (!prev) {
+    // At the start of a line, move to the end of the previous one.
+    if (original !== undefined || cursor.line === 0) return [];
+    const up = cursor.line - 1;
+    return [{ kind: "move", to: { line: up, col: lines[up].length } }];
+  }
+  const from = { line: cursor.line, col: prev.start };
+  // Never restore over a pasted block; just move.
+  const marker = touchesMarker(line, prev.start, prev.end, buf.pastes);
+  if (original === undefined || marker) return [{ kind: "move", to: from }];
+  return [{ kind: "replace", from, to: cursor, text: original, cursor: from }];
+}
+
 /** Apply effects to a buffer snapshot. */
 export function apply(buf: Buffer, effects: readonly Effect[]): Buffer {
   let { lines, cursor } = buf;
@@ -763,9 +816,10 @@ const MOTIONS = new Set("hjklwbeWBE0^$G;,%");
 const COUNTED = new Set("hjklwbeWBEG;,fFtTg");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
-const EDITS = new Set("iaIAoOxXsSDCYJpPu.~");
+const EDITS = new Set("iaIAoOxXsSDCYJpPu.~R");
 const COUNTED_EDITS = new Set("xXsJpP~");
 const CHANGES = new Set([
+  "R",
   "X",
   "~",
   "i",
@@ -1067,6 +1121,8 @@ function edit(
       );
     case "u":
       return [{ kind: "undo" }];
+    case "R":
+      return [{ kind: "mode", mode: "replace" }];
     case ".":
       return [{ kind: "repeat" }];
   }

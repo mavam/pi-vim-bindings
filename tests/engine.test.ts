@@ -4,6 +4,7 @@ import {
   type Buffer,
   CTRL_V,
   esc,
+  overtype,
   press,
   type Register,
   type State,
@@ -26,6 +27,8 @@ function run(before: string, keys: string): string {
       const result = esc(state, buf);
       state = result.state;
       buf = apply(buf, result.effects);
+    } else if (state.mode === "replace") {
+      buf = apply(buf, overtype(buf, key).effects);
     } else if (state.mode === "insert") {
       const to = { line: cursor.line, col: cursor.col + key.length };
       const typed = { from: cursor, to: cursor, text: key, cursor: to };
@@ -148,6 +151,9 @@ test.each([
   ["中|a\nabcd", "j", "中a\nab|cd"],
   ["|a\nabcdef", "<C-v>jly$P", "|a a\nababcdef"],
   [" \u0301\n|x", "dd", "| \u0301"],
+  // Replace mode
+  ["|abc", "Rxy<esc>", "x|yc"],
+  ["a|b", "Rxyz<esc>", "axy|z"],
   // Visual mode
   ["|ab", "vl", "a|b -- visual"],
   ["|ab", "vl<esc>", "a|b"],

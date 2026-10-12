@@ -10,6 +10,7 @@ Pi. When in doubt, cut.
 | --- | --- | --- |
 | INSERT (start mode) | Startup, after submit, `i a I A o O c…` | `INSERT`, muted |
 | NORMAL | Esc / `Ctrl-[` from INSERT | `NORMAL`, accent; pending keys replace it (`2d`, `ci`, `f`) |
+| REPLACE | `R` from NORMAL | `REPLACE`, accent |
 | VISUAL / VISUAL LINE / VISUAL BLOCK | `v` / `V` / `Ctrl-V` from NORMAL | `VISUAL` / `VISUAL LINE` / `VISUAL BLOCK`, accent |
 
 No reverse video. The working, compaction, and retry spinners stay in the top
@@ -19,8 +20,8 @@ border, as in stock Pi.
 
 | Situation | Esc / `Ctrl-[` does |
 | --- | --- |
-| INSERT, autocomplete open | Close autocomplete; stay in INSERT |
-| INSERT | → NORMAL, cursor one character left |
+| INSERT or REPLACE, autocomplete open | Close autocomplete; stay in the mode |
+| INSERT or REPLACE | → NORMAL, cursor one character left |
 | NORMAL, pending command | Cancel it |
 | NORMAL, nothing pending | Pi's interrupt (abort the agent, double-Esc behavior) |
 
@@ -54,6 +55,20 @@ objects, `%`, or `.`.
 | `i` / `a` | Before / after cursor |
 | `I` / `A` | First non-blank / end of line |
 | `o` / `O` | Open line below / above |
+
+### Replace mode
+
+`R` starts REPLACE mode. Each typed character overwrites the one under the
+cursor; at the end of the line, it's appended. Backspace puts back what the
+last typed character overwrote; past where you started, it only moves left,
+also onto the previous line. Esc returns to NORMAL. One `u` undoes the whole
+session, and `.` repeats it, Backspaces included.
+
+Keys that aren't text, such as arrows, Enter, and Pi shortcuts, go to Pi. If
+one moves the cursor or edits, as do clicks and pastes, Backspace and `.`
+start over from there. Backspace always restores, even if Pi binds another
+key to delete backward. Overwriting a pasted block is refused, and Backspace
+never restores over one.
 
 ### Motions
 
@@ -185,6 +200,9 @@ Deliberate, to keep the scope small:
   it's a single line without pasted blocks.
 - **Pasted blocks:** `J`, `>`, and `<` keep them; other edits that touch one
   are refused.
+- **Replace mode:** no counts (`3R`) or `gR`. Backspace doesn't remove a line
+  break typed in Replace mode, and after an arrow key `.` repeats only what
+  was typed after it, overwriting as Replace mode does.
 - **Indent** is two spaces. **Clipboard** copies are best effort.
 
 ## 8. Cut from v0.1
@@ -196,7 +214,7 @@ Candidates for later, roughly by demand:
 
 Not planned: cursor shape (pi-vim #55), `jj`/`jk` escape (pi-vim #45).
 
-Out of scope: search, `{ }`, named registers, macros, marks, `R`, Ex commands
+Out of scope: search, `{ }`, named registers, macros, marks, `{n}R`, `gR`, Ex commands
 beyond quitting, remapping, history on `j`/`k`, `.` for Visual changes, `>`/`<` with
 motions, a configurable indent width.
 
