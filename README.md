@@ -43,7 +43,8 @@ it.
 Counts work on motions and most edits, as in `3w`, `d3w`, or `2dd`. Keys Vim
 doesn't use, such as Enter, Tab, arrows, and Ctrl or Alt shortcuts, keep
 doing what they do in Pi. The exceptions in NORMAL mode are `Ctrl-V`, which
-starts Visual block mode instead of pasting an image, and `Ctrl-]`.
+starts Visual block mode instead of pasting an image, `Ctrl-R`, which redoes,
+and `Ctrl-]`.
 
 **Modes and Esc**
 
@@ -98,6 +99,7 @@ Quote and bracket objects stay on the current line.
 | `>>` / `<<` | Indent / outdent by two spaces |
 | `p` / `P` | Put after / before the cursor |
 | `u` | Undo a whole change, such as `ciwfoo<Esc>` |
+| `Ctrl-R` | Redo what `u` undid |
 | `.` | Repeat the last change |
 
 Deletes, changes, and yanks share one register. Yanks also go to the system
@@ -145,7 +147,7 @@ based on reading their source as of October 2026:
 | Text objects | word, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `.` repeat | ⚠️ partial | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
-| `Ctrl-R` redo | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Ctrl-R` redo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
