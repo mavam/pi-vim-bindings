@@ -1,9 +1,20 @@
 import { expect, test } from "bun:test";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { attach, type Shared } from "../src/attach.ts";
+import type { VimEditorCapability } from "../src/status.ts";
 import { keybindings as createKeybindings, theme, tui } from "./fixtures.ts";
 
-function setup(position: Shared["position"] = "bottom-right") {
+/** What the editor publishes for other extensions. */
+const capability = (editor: object) =>
+  (editor as Record<symbol, VimEditorCapability | undefined>)[
+    Symbol.for("pi-vim-editor")
+  ];
+const status = (editor: object) => capability(editor)?.status();
+
+function setup(
+  position: Shared["position"] = "bottom-right",
+  Editor: typeof CustomEditor = CustomEditor,
+) {
   const notes: string[] = [];
   const copies: string[] = [];
   // What the next clipboard read returns.
@@ -26,7 +37,7 @@ function setup(position: Shared["position"] = "bottom-right") {
     paint: (_insert, text) => `<${text.trim()}>`,
   };
   const keybindings = createKeybindings();
-  const editor = new CustomEditor(tui as never, theme as never, keybindings);
+  const editor = new Editor(tui as never, theme as never, keybindings);
   attach(editor, keybindings, shared);
   const type = (...keys: string[]) => {
     for (const key of keys) editor.handleInput(key);
@@ -107,6 +118,7 @@ test("ends Visual mode when something else changes the text", () => {
   editor.setText("a\nb\nc");
   type("\x1b", "V");
   editor.setText("x");
+  expect(status(editor)?.mode).toBe("normal");
   expect(editor.render(40).some((line) => line.includes("<NORMAL>"))).toBe(
     true,
   );
@@ -298,4 +310,77 @@ test("fails closed on editors without the expected internals", () => {
   const editor = { handleInput() {}, renderBottomBorder: () => "" };
   expect(attach(editor, keybindings, shared)).toBe(false);
   expect(notes).toHaveLength(1);
+  expect(capability(editor)).toBeUndefined();
+});
+
+// Editors that rearrange Pi's rows after rendering them, as framing
+// extensions do: the rows no longer match Pi's layout.
+class Railed extends CustomEditor {
+  override render(width: number) {
+    return super
+      .render(width - 2)
+      .slice(1, -1)
+      .map((row) => `| ${row}`);
+  }
+}
+class Framed extends CustomEditor {
+  override render(width: number) {
+    return super.render(width - 2).map((row) => `| ${row}`);
+  }
+}
+class Headless extends CustomEditor {
+  override render(width: number) {
+    return super.render(width).slice(1);
+  }
+}
+
+test.each([
+  ["drops the borders", Railed],
+  ["renders narrower and indents", Framed],
+  ["drops the top border", Headless],
+])("doesn't highlight in the wrong place when an editor %s", (_, Editor) => {
+  const { editor, type } = setup("bottom-right", Editor);
+  editor.setText("first\nsecond\nthird");
+  type("\x1b", "G", "V");
+  const lines = editor.render(40);
+  expect(lines.join("\n")).not.toContain("\x1b[27m");
+  expect(lines.some((line) => line.includes("hird"))).toBe(true);
+  expect(status(editor)?.label).toBe("VISUAL LINE");
+  type("d");
+  expect(editor.getText()).toBe("first\nsecond");
+});
+
+test("publishes the current mode and pending keys", () => {
+  const { editor, type } = setup();
+  editor.setText("foo bar");
+  const steps: [string[], string, string, string][] = [
+    [[], "insert", "", "INSERT"],
+    [["\x1b"], "normal", "", "NORMAL"],
+    [["2", "d"], "normal", "2d", "2d"],
+    [["\x1b", '"', "+"], "normal", '"+', '"+'],
+    [["\x1b", "v"], "visual", "", "VISUAL"],
+    [["V"], "visual-line", "", "VISUAL LINE"],
+    [["\x16"], "visual-block", "", "VISUAL BLOCK"],
+    [["\x1b", "R"], "replace", "", "REPLACE"],
+    [["\x1b", ":", "q"], "normal", ":q", ":q"],
+  ];
+  for (const [keys, mode, pending, label] of steps) {
+    type(...keys);
+    // Current without a render in between, and the same as the border.
+    expect(status(editor)).toEqual({ mode, pending, label } as never);
+    expect(editor.render(40).at(-1)).toContain(`<${label}>`);
+  }
+});
+
+test("keeps one status per editor, back in INSERT after a submit", () => {
+  const { editor, keybindings, shared, type } = setup();
+  const published = capability(editor);
+  expect(published?.version).toBe(1);
+  expect(attach(editor, keybindings, shared)).toBe(true);
+  expect(capability(editor)).toBe(published);
+  editor.onSubmit = () => {};
+  type("a", "\x1b");
+  expect(status(editor)?.mode).toBe("normal");
+  type("\r");
+  expect(status(editor)?.mode).toBe("insert");
 });

@@ -36,7 +36,9 @@ or `Ctrl-V` start Visual mode. Press `Esc` again in NORMAL mode to interrupt
 the agent, as usual. The current mode shows in a corner of the editor border.
 
 If another extension also customizes the editor, load pi-vim-editor after
-it.
+it. Extensions that draw their own editor frame can show the Vim mode
+themselves; see
+[docs/integration.md](https://github.com/mavam/pi-vim-editor/blob/main/docs/integration.md).
 
 ## ⌨️ Key bindings
 

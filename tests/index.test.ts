@@ -56,6 +56,19 @@ test("decorates the editor of a previously installed factory", () => {
   expect(decorated(editor)).toBe(true);
 });
 
+test("publishes a fresh status for each new editor", () => {
+  const factory = start("tui") as Factory;
+  const status = (editor: object) =>
+    (editor as Record<symbol, { status(): { mode: string } }>)[
+      Symbol.for("pi-vim-editor")
+    ].status();
+  const first = create(factory);
+  first.handleInput("\x1b");
+  const second = create(factory);
+  expect(status(first).mode).toBe("normal");
+  expect(status(second).mode).toBe("insert");
+});
+
 test.each([false, true])(
   "cursor shapes are opt-in and cleaned up across their lifecycle (cached editor: %s)",
   (cached) => {
