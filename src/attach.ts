@@ -42,6 +42,7 @@ import {
   untype,
 } from "./engine.js";
 import { type Layout, portFor } from "./port.js";
+import { publish, statusOf, VIM_EDITOR } from "./status.js";
 import { markers, remark } from "./text.js";
 
 /** State shared by all decorated editors of one extension instance. */
@@ -78,7 +79,6 @@ type Decoratable = {
   borderColor?: (text: string) => string;
 };
 
-const DECORATED = Symbol.for("pi-vim-editor");
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -92,7 +92,7 @@ export function attach(
   /** Ask Pi to render, for changes that arrive outside input. */
   redraw: () => void = () => {},
 ): boolean {
-  if (DECORATED in editor) return true;
+  if (VIM_EDITOR in editor) return true;
   const target = editor as Decoratable;
   const port = portFor(editor);
   if (
@@ -108,7 +108,6 @@ export function attach(
     );
     return false;
   }
-  Object.defineProperty(editor, DECORATED, { value: true });
   const passthrough = target.handleInput.bind(editor);
   const top = target.renderTopBorder.bind(editor);
   const bottom = target.renderBottomBorder.bind(editor);
@@ -557,14 +556,26 @@ export function attach(
     settle();
   };
 
-  target.render = (width: number) => {
+  // Text that changed from outside ends Visual mode before anyone shows it.
+  const current = () => {
     if (isVisual(state.mode)) reconcile(port.read());
+    return state;
+  };
+
+  // The borders Pi's render drew during our last render, if any. The rows
+  // between them have the layout `port.layout` describes, unless the editor
+  // rendered at another width or rearranged the rows afterward.
+  let borders: { top?: Border; bottom?: Border } = {};
+  target.render = (width: number) => {
+    current();
+    borders = {};
     const lines = render(width);
     renderCursor?.(state.mode, lines);
     if (!isVisual(state.mode)) return lines;
     const buf = port.read();
     const layout = port.layout?.(width);
-    if (layout) highlight(lines, buf.lines, selectedSpans(state, buf), layout);
+    if (layout && native(lines, width, layout, borders))
+      highlight(lines, buf.lines, selectedSpans(state, buf), layout);
     return lines;
   };
 
@@ -577,14 +588,43 @@ export function attach(
   };
   const [vertical, horizontal] = shared.position.split("-");
   target.renderTopBorder = (width: number, hidden: number) => {
-    const line = top(width, hidden);
-    return vertical === "top" ? decorate(line, horizontal === "left") : line;
+    const raw = top(width, hidden);
+    const line =
+      vertical === "top" ? decorate(raw, horizontal === "left") : raw;
+    borders.top = { width, line };
+    return line;
   };
   target.renderBottomBorder = (width: number, hidden: number) => {
-    const line = bottom(width, hidden);
-    return vertical === "bottom" ? decorate(line, horizontal === "left") : line;
+    const raw = bottom(width, hidden);
+    const line =
+      vertical === "bottom" ? decorate(raw, horizontal === "left") : raw;
+    borders.bottom = { width, line };
+    return line;
   };
+  publish(editor, () => statusOf(current()));
   return true;
+}
+
+type Border = { width: number; line: string };
+
+/**
+ * Whether `rendered` is Pi's editor layout at `width`: the borders drawn at
+ * that width, with the layout's rows between them. Another editor may render
+ * Pi's at a smaller width, or drop, add, or indent rows; then a highlight
+ * would land in the wrong cells.
+ */
+function native(
+  rendered: readonly string[],
+  width: number,
+  layout: Layout,
+  { top, bottom }: { top?: Border; bottom?: Border },
+): boolean {
+  return (
+    top?.width === width &&
+    bottom?.width === width &&
+    rendered[0] === top.line &&
+    rendered[layout.rows.length + 1] === bottom.line
+  );
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: modifyOtherKeys
@@ -653,8 +693,9 @@ function highlight(
 ) {
   rows.forEach((row, i) => {
     const span = spans.find((s) => s.line === row.line);
-    if (!span) return;
     const line = lines[row.line];
+    // Never style rows or lines that aren't there.
+    if (!span || line === undefined || rendered[i + 1] === undefined) return;
     const { start, end } = span;
     const a = Math.max(start, row.start);
     const b = Math.min(end, row.start + row.length);

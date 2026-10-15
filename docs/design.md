@@ -95,8 +95,9 @@ Four members on the **instance**, each delegating to the value it replaced
 | `renderTopBorder(width, hidden)`, `renderBottomBorder(width, hidden)` | `Editor.render()` calls both through `this` (`editor.ts:564`, `616`). One of them carries the mode label (§7); the other passes through. |
 | `render(width)` | Applies opt-in cursor shapes (§7), then reverse-videos the selection in Visual mode (§6.1). Otherwise returns the original rows unchanged. |
 
-A controller is stored under `Symbol.for("pi-vim-editor")`; a second
-`attach()` on the same instance is a no-op. There's no `detach()`: removing
+The read-only status capability (§7.1) is stored under
+`Symbol.for("pi-vim-editor")`; a second `attach()` on the same instance is a
+no-op. There's no `detach()`: removing
 patched members could remove a later wrapper. Opt-in cursor shapes also
 decorate `focused` and the terminal, with their own cleanup (§7).
 
@@ -127,6 +128,7 @@ src/
 ├── index.ts      # session_start/shutdown wiring (§3.1)
 ├── cursor.ts     # opt-in hardware cursor shape and lifecycle (§7)
 ├── attach.ts     # instance patching: input routing (§5), mode label (§7)
+├── status.ts     # read-only status for other extensions (§7.1)
 ├── engine.ts     # PURE: key → effects; parser, motions, objects
 ├── text.ts       # PURE: graphemes, word classes, paste-marker spans
 └── port.ts       # editor capability adapter (§6)
@@ -276,6 +278,16 @@ each wrapped row's logical line and column span, `scrollOffset` and
 `renderedVisibleLineCount` give the visible slice, and `getPaddingX()` the left
 padding. Row `i` of that slice is rendered line `i + 1` (after the top border).
 
+That holds only for the rows Pi's `Editor.render()` returns. An editor that
+subclasses it, such as another extension's framed editor, may render Pi's
+rows at a smaller width and then drop, add, or indent rows. So the decorator
+highlights only if the rows are verifiably Pi's layout: during the same
+`render(width)`, Pi called both border methods (which we patch) with that
+width, and their results are row 0 and row `n + 1` for `n` layout rows.
+Otherwise the selection isn't shown, rather than shown in the wrong cells.
+The decorator also skips rows and lines that don't exist. It doesn't guess
+another editor's geometry; that needs an agreed contract or upstream ask #4.
+
 For each row, the selected columns become visible columns with `visibleWidth`,
 and the row gets `ESC[7m … ESC[27m` around them, skipping escape sequences.
 After a code that ends reverse video inside the selection (an SGR reset, or the
@@ -318,6 +330,19 @@ terminal is narrow), the label is left out. No status-line fallback.
 
 Border widgets (open Pi PR #10602) could replace the patch later. Not designed
 for now.
+
+### 7.1 Status for other extensions
+
+Extensions that frame the editor themselves can drop Pi's border rows and
+the label with them. `status.ts` publishes a frozen capability on the
+decorated instance under `Symbol.for("pi-vim-editor")`:
+`{ version: 1, status() }`, where `status()` returns
+`{ mode, pending, label }`. `label` is the same text the border shows.
+`status()` computes it on every call, after the same reconciliation `render()`
+does, so it never reports a Visual mode that changed text already ended. It
+doesn't depend on the border methods, which keep their behavior. The
+capability lives as long as the decoration, which has no `detach()`.
+User-facing contract: [`integration.md`](integration.md).
 
 NORMAL clamps the cursor onto a character. By default, the cursor remains
 Pi's reverse-video block, with no terminal escapes from this extension.

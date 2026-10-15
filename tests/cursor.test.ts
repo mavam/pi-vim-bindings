@@ -11,6 +11,11 @@ import { attach } from "../src/attach.ts";
 import { cursorFor } from "../src/cursor.ts";
 import { keybindings, theme, tui } from "./fixtures.ts";
 
+// Pi's software cursor right after the focus marker, as SGR 7 or an APC.
+const SOFTWARE_CURSOR = new RegExp(
+  `${CURSOR_MARKER.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}(?:\x1b\\[7m|\x1b_pi:fc\x07)`,
+);
+
 function setup() {
   const writes: string[] = [];
   let hardware = true;
@@ -89,8 +94,9 @@ test("removes only Pi's fake cursor, preserving the marker, Unicode, layout, and
   editor.setText("a👩‍💻界é");
   type("\x1b", "0", "l", "i");
   const lines = render();
-  expect(lines[1]).toContain(`a${CURSOR_MARKER}👩‍💻\x1b[0m界é`);
-  expect(lines[1]).not.toContain("\x1b[7m");
+  expect(lines[1]).toContain(`a${CURSOR_MARKER}👩‍💻`);
+  expect(lines[1]).toContain("界é");
+  expect(lines[1]).not.toMatch(SOFTWARE_CURSOR);
   expect(visibleWidth(lines[1])).toBe(40);
   const visual = type("\x1b", "0", "v", "l");
   expect(visual[1]).toContain("\x1b[7ma");
@@ -102,12 +108,12 @@ test("removes only Pi's fake cursor, preserving the marker, Unicode, layout, and
 test("leaves Pi's software cursor intact when the hardware cursor is hidden", () => {
   const { hardware, writes, render, cursor } = setup();
   hardware(false);
-  expect(render()[1]).toContain(`${CURSOR_MARKER}\x1b[7m`);
+  expect(render()[1]).toMatch(SOFTWARE_CURSOR);
   expect(writes).toEqual([]);
   hardware(true);
   render();
   hardware(false);
-  expect(render()[1]).toContain(`${CURSOR_MARKER}\x1b[7m`);
+  expect(render()[1]).toMatch(SOFTWARE_CURSOR);
   expect(writes).toEqual(["\x1b[6 q", "\x1b[0 q"]);
   cursor.dispose();
 });
@@ -131,7 +137,7 @@ test("restores before yielding the terminal and reapplies after resume", () => {
   host.terminal.stop();
   expect(writes).toEqual(["\x1b[6 q", "\x1b[0 q", "stop"]);
   // Fullscreen renders once more after stopping to print the transcript.
-  expect(render()[1]).toContain(`${CURSOR_MARKER}\x1b[7m`);
+  expect(render()[1]).toMatch(SOFTWARE_CURSOR);
   expect(writes).toHaveLength(3);
   host.terminal.start();
   render();

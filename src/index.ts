@@ -10,6 +10,12 @@ import { attach, type Position, type Shared } from "./attach.js";
 import { createClipboard, readCommands } from "./clipboard.js";
 import { type Cursor, cursorFor } from "./cursor.js";
 
+export type {
+  VimEditorCapability,
+  VimEditorMode,
+  VimEditorStatus,
+} from "./status.js";
+
 type Factory = NonNullable<
   ReturnType<ExtensionUIContext["getEditorComponent"]>
 >;
