@@ -1,0 +1,9 @@
+created: 2026-10-15
+title: Safe Visual mode in framed editors
+intro: >-
+  This release stops Visual mode from crashing Pi or highlighting the wrong cells
+  when another extension frames the editor differently. Editor frame extensions can
+  also read the current Vim mode and pending command from a new status interface.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.3.0
