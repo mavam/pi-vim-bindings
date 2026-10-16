@@ -706,6 +706,58 @@ test("unchanged and refused formatting never writes, copies, or consumes undo", 
   expect(notes.at(-1)).toBe("Vim edits can't touch pasted blocks.");
 });
 
+test.each([
+  ["/", false],
+  ["?", false],
+  ["/", true],
+  ["?", true],
+] as const)(
+  "%sfoo stays active with render and status between every key (Visual: %s)",
+  (direction, visual) => {
+    const { editor, type, copies } = setup();
+    const prompt = "foo x foo";
+    editor.setText(prompt);
+    let submits = 0;
+    let interrupts = 0;
+    editor.onSubmit = () => submits++;
+    editor.onEscape = () => interrupts++;
+    const frame = () => {
+      const before = status(editor);
+      editor.render(40);
+      expect(status(editor)).toEqual(before);
+      expect(editor.getText()).toBe(prompt);
+      expect(submits).toBe(0);
+      expect(interrupts).toBe(0);
+      return before;
+    };
+    const key = (input: string) => {
+      type(input);
+      return frame();
+    };
+    for (const input of ["\x1b", "0", ...(visual ? ["v"] : [])]) key(input);
+    const mode = visual ? "visual" : "normal";
+    // First cancel a fully typed query, then confirm one. No batched input.
+    for (const finish of ["\x1b", "\r"]) {
+      let pending = "";
+      for (const input of `${direction}foo`) {
+        pending += input;
+        expect(key(input)).toEqual({ mode, pending, label: pending });
+        expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+      }
+      expect(key(finish)?.mode).toBe(mode);
+      expect(status(editor)?.pending).toBe("");
+      expect(editor.getCursor()).toEqual({
+        line: 0,
+        col: finish === "\x1b" ? 0 : 6,
+      });
+    }
+    if (visual) {
+      key("y");
+      expect(copies).toEqual(["foo x f"]);
+    }
+  },
+);
+
 test("search owns Enter, Esc, Ctrl-[, Backspace, and modified shortcuts", () => {
   const { editor, type } = setup();
   editor.setText("a foo foo");
