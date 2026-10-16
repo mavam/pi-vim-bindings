@@ -1,0 +1,9 @@
+created: 2026-10-16
+title: Paragraph editing, reflow, and prompt search
+intro: >-
+  Edit prose paragraphs with new text objects and navigation motions, and manually
+  reflow text with gq and gw. Search the prompt with literal, case-sensitive / and
+  ? queries, then repeat matches with n or N.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.5.0
