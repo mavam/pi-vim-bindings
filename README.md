@@ -84,10 +84,13 @@ lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 | Object | Inner / around |
 | --- | --- |
 | word / WORD | `iw` `aw` / `iW` `aW` |
+| sentence | `is` `as` |
 | quotes | `i"` `a"`, `i'` `a'` |
 | brackets | `i(` `a(`, `i[` `a[`, `i{` `a{` (closing brackets work too) |
 
-Quote and bracket objects stay on the current line.
+Sentence objects can span lines: `cis` changes the whole current sentence,
+even from its middle, and `das` also takes adjacent separator whitespace.
+Use `d2as` for two sentences. Quote and bracket objects stay on the current line.
 
 **Edits, undo, and repeat**
 
@@ -112,7 +115,7 @@ into a pasted block (`[paste #1 +24 lines]`) are refused.
 
 **Visual modes**
 
-Motions and text objects (`viw`, `vi(`) extend the selection.
+Motions and text objects (`viw`, `vi(`, `vis`, `v2as`) extend the selection.
 
 | Key | Action |
 | --- | --- |
@@ -148,7 +151,7 @@ based on reading their source as of October 2026:
 | Inline working indicator | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V` `Ctrl-V` |
 | Operators | `d` `c` `y` `gu` `gU` | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` | limited | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` |
-| Text objects | word, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
+| Text objects | word, sentence, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
 | `Ctrl-R` redo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |

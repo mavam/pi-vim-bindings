@@ -46,7 +46,8 @@ shadowed by Vim.
 
 Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $ ( )`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
-deletes six words), on word objects (`2diw`, `d3aW`), and on `x`, `X`, `s`,
+deletes six words), on word and sentence objects (`2diw`, `d3aW`, `d2as`),
+and on `x`, `X`, `s`,
 `S`, `C`, `D`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on quote or bracket
 objects or `%`.
 
@@ -109,10 +110,28 @@ sentence start deletes the sentence and the blanks after it.
 | Operator + motion | `dw`, `c$`, `d2w`, `dt,`, `d)`, `y3j`, `dG` (`j k gg G` are linewise) |
 | Doubled = whole line | `dd`, `cc`, `yy`, `guu`, `gUU` |
 | Word / WORD object | `diw`, `caw`, `ciW`, `daW` |
+| Sentence object, across lines | `dis`, `cas`, `yis`, `guas`, `gUis` |
 | Quote object, same line | `ci"`, `da'` |
 | Bracket object, same line | `ci(`, `da[`, `yi{`; the closing bracket works too (`ci)`) |
 
 Any operator whose range touches a paste marker is refused with a notice.
+
+Sentence objects use the same boundaries as `(` and `)`, but select the whole
+current sentence even when the cursor is in its middle:
+
+- `is` selects the sentence without separator whitespace. On the whitespace
+  between sentences, it selects that whitespace instead.
+- `as` includes trailing separator whitespace when available, otherwise leading
+  whitespace. From separator whitespace, it selects that whitespace and the
+  following sentence.
+- Counts on `is` include whitespace as a separate step: `d2is` deletes the
+  sentence and its following separator; `d3is` includes the next sentence too.
+  Counts on `as` select sentences with their whitespace: `d2as` deletes two.
+  Operator and object counts multiply, so `2d3as` deletes six sentences.
+- Sentences can span lines and end at the prompt's end without punctuation.
+  NORMAL operators use Vim's exclusive-line rules: on `One.\nTwo.`, `yis` on
+  the first sentence yanks a whole line. Visual `visy` instead yanks `One.`
+  characterwise, without the newline.
 
 ### Single-key edits
 
@@ -155,7 +174,7 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 | `v` / `V` / `Ctrl-V` | Switch between charwise, linewise, and block; the same key again leaves |
 | `o` | Jump to the other end of the selection |
 | `O` | Block: jump to the other corner on the same line; otherwise like `o` |
-| `iw` `aw` `iW` `aW` `i"` `a(` … | Select a text object (charwise) |
+| `iw` `aw` `iW` `aW` `is` `as` `i"` `a(` … | Select a text object (charwise) |
 | `d` / `x` | Delete the selection |
 | `c` / `s` | Change the selection: delete, then INSERT |
 | `y` | Yank the selection; also goes to the system clipboard |
@@ -165,6 +184,10 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 | `~` / `u` / `U` | Toggle case / lowercase / uppercase the selection |
 | `>` / `<` | Indent / outdent the selected lines by two spaces |
 | Esc | Leave without changing anything |
+
+Sentence objects take counts in Visual mode (`v2as`). Repeating `is` or `as`
+extends an existing selection in the cursor's direction. They switch linewise
+and block selections to characterwise, including when the sentence spans lines.
 
 Block mode adds:
 
@@ -252,8 +275,9 @@ How `"+p` treats the clipboard:
 Deliberate, to keep the scope small:
 
 - **Counts:** `2dd` works, `d2d` doesn't. A count on an operator needs a
-  motion or object that takes counts (`d3w`, `2y3j`, `2diw`). No counts on
-  quote or bracket objects or `%`. `{n}dd` on the last line does nothing, as
+  motion or object that takes counts (`d3w`, `2y3j`, `2diw`, `d2as`). Sentence
+  object counts multiply like other operator counts (`2d3as` means `d6as`).
+  No counts on quote or bracket objects or `%`. `{n}dd` on the last line does nothing, as
   in Vim.
 - **`.` after Pi's own editing keys:** `.` repeats what an INSERT session
   changed, not the keys. So `Ctrl-W` or `Ctrl-U` repeat as deleting the same
@@ -261,8 +285,9 @@ Deliberate, to keep the scope small:
   repeats as typing that text.
 - **`j` / `k`** keep the display column of the line you leave, without Vim's
   sticky column.
-- **Text objects** stay on the current line. Bracket objects need the cursor
-  inside the brackets, and `a"` doesn't take the surrounding whitespace.
+- **Word, quote, and bracket objects** stay on the current line; sentence
+  objects can span lines. Bracket objects need the cursor inside the brackets,
+  and `a"` doesn't take the surrounding whitespace.
 - **`%`** also matches brackets inside quotes.
 - **Sentences:** only empty lines end paragraphs; nroff macros (`.PP`, `.SH`,
   …) from `'paragraphs'` and `'sections'` and form feeds don't, and the
