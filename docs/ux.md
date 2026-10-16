@@ -44,7 +44,7 @@ shadowed by Vim.
 
 ## 4. NORMAL mode (v0.1)
 
-Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $`, on
+Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $ ( )`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
 deletes six words), on word objects (`2diw`, `d3aW`), and on `x`, `X`, `s`,
 `S`, `C`, `D`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on quote or bracket
@@ -84,10 +84,20 @@ never restores over one.
 | `0` `^` `$` | Line start / first non-blank / last character |
 | `gg` `G` `{n}G` | First line / last line / line n |
 | `%` | From the first bracket at or after the cursor on the line, to its partner, across lines |
+| `(` `)` | Back / forward to the start of a sentence, across lines; see below |
 | `f{c}` `F{c}` `t{c}` `T{c}` | To / till character on the line |
 | `;` `,` | Repeat the last `f F t T` / in reverse |
 
 Paste markers (`[paste #1 +24 lines]`) count as one character.
+
+A sentence ends at `.`, `!`, or `?`, followed by any number of `)`, `]`,
+`"`, or `'`, and then a space, a tab, or the line end. Empty lines are
+boundaries too; lines with only blanks aren't. `)` from inside a run of empty
+lines goes past all of them, and `(` from a sentence start goes to the
+previous one. Past the last sentence, `)` goes to the last character, and
+`d)` deletes through it. A count that runs past the start or end of the
+prompt does nothing, as in Vim. `(` and `)` are exclusive, so `d)` from a
+sentence start deletes the sentence and the blanks after it.
 
 ### Operators
 
@@ -96,7 +106,7 @@ Paste markers (`[paste #1 +24 lines]`) count as one character.
 
 | Form | Example |
 | --- | --- |
-| Operator + motion | `dw`, `c$`, `d2w`, `dt,`, `y3j`, `dG` (`j k gg G` are linewise) |
+| Operator + motion | `dw`, `c$`, `d2w`, `dt,`, `d)`, `y3j`, `dG` (`j k gg G` are linewise) |
 | Doubled = whole line | `dd`, `cc`, `yy`, `guu`, `gUU` |
 | Word / WORD object | `diw`, `caw`, `ciW`, `daW` |
 | Quote object, same line | `ci"`, `da'` |
@@ -254,6 +264,9 @@ Deliberate, to keep the scope small:
 - **Text objects** stay on the current line. Bracket objects need the cursor
   inside the brackets, and `a"` doesn't take the surrounding whitespace.
 - **`%`** also matches brackets inside quotes.
+- **Sentences:** only empty lines end paragraphs; nroff macros (`.PP`, `.SH`,
+  …) from `'paragraphs'` and `'sections'` and form feeds don't, and the
+  `J` flag of `'cpoptions'` (two spaces after a sentence) isn't supported.
 - **Visual mode:** a charwise selection doesn't include line breaks, so `v$d`
   keeps the newline. Block `p` / `P` do nothing. Text that changes from
   outside Vim (Pi's history, another extension, `Ctrl-H`) ends Visual mode.
