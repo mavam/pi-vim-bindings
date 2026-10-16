@@ -3,6 +3,8 @@ title: Sentence text objects
 type: feature
 authors:
   - mavam
+prs:
+  - 3
 created: 2026-10-16T08:31:50.170704Z
 ---
 
