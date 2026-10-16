@@ -3,6 +3,8 @@ title: Backtick text objects
 type: feature
 authors:
   - mavam
+prs:
+  - 4
 created: 2026-10-16T09:32:14.191535Z
 ---
 
