@@ -80,6 +80,35 @@ test("undoes and repeats whole changes, and copies yanks", () => {
   expect(copies).toEqual(["foo foo"]);
 });
 
+test("changes a backtick path, repeats it, and undoes each whole change", () => {
+  const { editor, type } = setup();
+  type(..."`src/old.ts` `other.ts`", "\x1b", "0", "5", "l", "c", "i", "`");
+  expect(editor.getText()).toBe("`` `other.ts`");
+  expect(status(editor)?.mode).toBe("insert");
+  type(..."src/new.ts", "\x1b");
+  expect(editor.getText()).toBe("`src/new.ts` `other.ts`");
+  expect(status(editor)?.mode).toBe("normal");
+  type("$", ".");
+  expect(editor.getText()).toBe("`src/new.ts` `src/new.ts`");
+  type("u");
+  expect(editor.getText()).toBe("`src/new.ts` `other.ts`");
+  type("u");
+  expect(editor.getText()).toBe("`src/old.ts` `other.ts`");
+});
+
+test.each([
+  ["yi`", "src/old.ts"],
+  ["ya`", "`src/old.ts`"],
+  ["vi`y", "src/old.ts"],
+  ["va`y", "`src/old.ts`"],
+])("copies a backtick object: %s", (keys, text) => {
+  const { editor, type, copies, shared } = setup();
+  type(..."`src/old.ts`", "\x1b", "0", ...keys);
+  expect(editor.getText()).toBe("`src/old.ts`");
+  expect(copies).toEqual([text]);
+  expect(shared.register).toEqual({ text, linewise: false });
+});
+
 test("undoes a sentence change in one step", () => {
   const { editor, type } = setup();
   type(..."One. Two. Three.", "\x1b", "0", "c", "2", ")", ..."New. ", "\x1b");

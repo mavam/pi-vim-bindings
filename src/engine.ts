@@ -1208,7 +1208,7 @@ const CHANGES = new Set([
   ">>",
   "<<",
 ]);
-const OBJECTS = new Set("wWs\"'()[]{}");
+const OBJECTS = new Set("wWs\"'`()[]{}");
 
 type Op = "d" | "c" | "y" | "gu" | "gU";
 const OPERATORS: readonly Op[] = ["d", "c", "y", "gu", "gU"];
