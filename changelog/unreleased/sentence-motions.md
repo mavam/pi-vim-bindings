@@ -3,6 +3,8 @@ title: Sentence motions
 type: feature
 authors:
   - mavam
+prs:
+  - 2
 created: 2026-10-16T06:54:12.655751Z
 ---
 

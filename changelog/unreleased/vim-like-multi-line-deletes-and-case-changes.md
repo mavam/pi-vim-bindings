@@ -3,6 +3,8 @@ title: Vim-like multi-line deletes and case changes
 type: bugfix
 authors:
   - mavam
+prs:
+  - 2
 created: 2026-10-16T06:54:14.103789Z
 ---
 
