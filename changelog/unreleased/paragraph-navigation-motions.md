@@ -1,6 +1,8 @@
 ---
 title: Paragraph navigation motions
 type: feature
+prs:
+  - 6
 authors:
   - mavam
 created: 2026-10-16T10:42:19.339393Z
