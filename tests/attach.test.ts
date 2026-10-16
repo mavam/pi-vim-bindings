@@ -640,6 +640,71 @@ test("publishes the current mode and pending keys", () => {
   }
 });
 
+test("gwap tracks the cursor's text, preserves the register, and repeats with one-step undo", () => {
+  const { editor, shared, copies, type } = setup();
+  shared.textWidth = 12;
+  const register = { text: "keep me", linewise: false };
+  shared.register = register;
+  const paragraph = "one two three four five six";
+  editor.setText(`${paragraph}\n\n${paragraph}`);
+  type("\x1b", ..."gg019lgwap");
+  expect(editor.getText()).toBe(
+    `one two\nthree four\nfive six\n\n${paragraph}`,
+  );
+  expect(editor.getCursor()).toEqual({ line: 2, col: 0 });
+  type(..."G0.");
+  expect(editor.getText()).toBe(
+    "one two\nthree four\nfive six\n\none two\nthree four\nfive six",
+  );
+  type("u");
+  expect(editor.getText()).toBe(
+    `one two\nthree four\nfive six\n\n${paragraph}`,
+  );
+  type("u");
+  expect(editor.getText()).toBe(`${paragraph}\n\n${paragraph}`);
+  expect(shared.register).toBe(register);
+  expect(copies).toEqual([]);
+});
+
+test.each(["gqap", "vapgq"])(
+  "%s formats once and lands on the retained separator",
+  (keys) => {
+    const { editor, shared, type } = setup();
+    shared.textWidth = 12;
+    const before = "one two three four five six\n\nnext";
+    editor.setText(before);
+    type("\x1b", ..."gg0", ...keys);
+    expect(editor.getText()).toBe("one two\nthree four\nfive six\n\nnext");
+    expect(editor.getCursor()).toEqual({ line: 3, col: 0 });
+    type("u");
+    expect(editor.getText()).toBe(before);
+  },
+);
+
+test("unchanged and refused formatting never writes, copies, or consumes undo", () => {
+  const { editor, shared, notes, copies, type } = setup();
+  shared.textWidth = 12;
+  editor.setText("short");
+  type("\x1b", ..."gg0x");
+  let changes = 0;
+  editor.onChange = () => changes++;
+  type(..."gwap");
+  expect(changes).toBe(0);
+  type("u");
+  expect(editor.getText()).toBe("short");
+  editor.setText("one two three four\n\nend");
+  type(..."G$", `\x1b[200~${"paste\n".repeat(12)}\x1b[201~`);
+  const before = editor.getText();
+  changes = 0;
+  const register = shared.register;
+  type(..."gg0gqG");
+  expect(editor.getText()).toBe(before);
+  expect(changes).toBe(0);
+  expect(shared.register).toBe(register);
+  expect(copies).toEqual([]);
+  expect(notes.at(-1)).toBe("Vim edits can't touch pasted blocks.");
+});
+
 test("keeps one status per editor, back in INSERT after a submit", () => {
   const { editor, keybindings, shared, type } = setup();
   const published = capability(editor);

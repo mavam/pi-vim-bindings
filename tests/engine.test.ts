@@ -11,10 +11,11 @@ import {
 } from "../src/engine.ts";
 
 /** Run keys on a buffer written as text with `|` at the cursor. */
-function run(before: string, keys: string): string {
+function run(before: string, keys: string, textWidth?: number): string {
   const raw = before.split("\n");
   const line = raw.findIndex((l) => l.includes("|"));
   let buf: Buffer = {
+    textWidth,
     lines: raw.map((l) => l.replace("|", "")),
     cursor: { line, col: raw[line].indexOf("|") },
   };
@@ -537,3 +538,100 @@ test("paragraph counts refuse adjacent paste content, not untouched paragraphs",
   expect(run(`A\n|\n${paste}\n\nB`, "dap")).toBe("refused");
   expect(run(`|A\n\n${paste}`, "dip")).toBe(`|\n${paste}`);
 });
+
+test.each([
+  ["one two three four |five six", "gwap", "one two\nthree four\n|five six"],
+  ["one two\nthree |four\nfive six", "gwip", "one two\nthree |four\nfive six"],
+  [
+    "one two three four |five six\n\nnext",
+    "gqap",
+    "one two\nthree four\nfive six\n|\nnext",
+  ],
+  [
+    "one two three four |five six\n\nnext",
+    "gqip",
+    "one two\nthree four\n|five six\n\nnext",
+  ],
+  ["|one two three four\n\nnext", "gq}", "one two\nthree four\n|\nnext"],
+  ["|one two three.\nfour five six", "gq)", "one two\nthree.\n|four five six"],
+  [
+    "one two three four\nfive six |seven eight",
+    "gqk",
+    "one two\nthree four\nfive six\n|seven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "2gqq",
+    "one two\nthree four\nfive six\n|seven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "gq2q",
+    "one two\nthree four\nfive six\n|seven eight",
+  ],
+  ["|one two three four", "gqgq", "one two\n|three four"],
+  ["one two three |four", "gww", "one two\nthree |four"],
+  [
+    "|one two three four\nfive six seven eight",
+    "2gwgw",
+    "|one two\nthree four\nfive six\nseven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "gw2gw",
+    "|one two\nthree four\nfive six\nseven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "2gww",
+    "|one two\nthree four\nfive six seven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "gw2w",
+    "|one two\nthree four\nfive six seven eight",
+  ],
+  [
+    "|one two three four\nfive six seven eight",
+    "Vjgw",
+    "one two\nthree four\n|five six\nseven eight",
+  ],
+  ["one |two three four", "viwgq", "one two\n|three four"],
+  [
+    "|one two three four\nfive six seven eight",
+    "<C-v>jgq",
+    "one two\nthree four\nfive six\n|seven eight",
+  ],
+  [
+    "one two\nthree |four. Five six seven.",
+    "gwis",
+    "one two\nthree |four.\nFive six\nseven.",
+  ],
+  [
+    "|one two three four\n \n\t\nfive six seven eight",
+    "gq2ap",
+    "one two\nthree four\n \n\t\nfive six\n|seven eight",
+  ],
+  [
+    "  one |two three four\n    five six",
+    "gwap",
+    "  one |two\n  three four\n  five six",
+  ],
+  [" | one two three four", "gwap", " | one two\n  three four"],
+  ["|one  two   three four five", "gqq", "one  two\nthree four\n|five"],
+  ["one two| three four", "gww", "one tw|o\nthree four"],
+  ["|unbreakablelongword two three", "gqq", "unbreakablelongword\n|two three"],
+  ["|界界 界界 界界", "gqq", "界界 界界\n|界界"],
+  ["|👩‍💻👩‍💻 👩‍💻👩‍💻 👩‍💻👩‍💻", "gqq", "👩‍💻👩‍💻 👩‍💻👩‍💻\n|👩‍💻👩‍💻"],
+  ["|éééé éééé éééé", "gqq", "éééé éééé\n|éééé"],
+  ["|\tone two three", "gqq", "\tone\n\ttwo\n\t|three"],
+] as const)("manually reflows prose: %j + %s", (before, keys, after) => {
+  expect(run(before, keys, 12)).toBe(after);
+});
+
+test.each(["gwap", "gqap", "gwiw", "viwgq", "<C-v>jgq"])(
+  "refuses formatting if any touched line contains a paste: %s",
+  (keys) => {
+    expect(run(`|one two three four ${paste}\nnext`, keys, 12)).toBe("refused");
+  },
+);

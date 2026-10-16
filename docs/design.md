@@ -21,8 +21,8 @@ License: MIT
 **Non-goals (v0.1)**
 
 Macros, search, registers beyond the unnamed one and the clipboard,
-Ex commands beyond quitting, settings beyond the indicator position and
-opt-in cursor shapes, remapping, a
+Ex commands beyond quitting, automatic formatting, filetype-aware formatting,
+remapping, a
 `/vim` command, and decorating overlay editors that other extensions create.
 Disable the extension with `pi config` or by uninstalling it.
 
@@ -130,7 +130,9 @@ src/
 ├── attach.ts     # instance patching: input routing (§5), mode label (§7)
 ├── status.ts     # read-only status for other extensions (§7.1)
 ├── engine.ts     # PURE: key → effects; parser, motions, objects
-├── sentence.ts   # PURE: sentence motions `(` `)`
+├── sentence.ts   # PURE: sentence motions and objects
+├── paragraph.ts  # PURE: paragraph motions and objects
+├── reflow.ts     # PURE: manual whole-line prose wrapping and cursor tracking
 ├── text.ts       # PURE: graphemes, word classes, paste-marker spans
 └── port.ts       # editor capability adapter (§6)
 ```
@@ -433,6 +435,17 @@ are installed.
   collapses everything into one undo step. `{n}.` becomes the count if the
   command takes one (`countable()`) and sticks for the next `.`; Visual
   changes ignore it.
+- **Manual reflow:** `gq` and `gw` reuse operator ranges, expanded to whole
+  touched lines. The engine checks every such line for paste markers before
+  formatting. `reflow.ts` wraps space/tab-delimited words, retains blank
+  separators and first-line indentation, and tracks the original cursor’s
+  character for `gw`. `gq` lands at the end of the formatted range. One replace
+  effect gives one undo step; unchanged text emits only a cursor move and does
+  not overwrite the last repeatable change. The register is never written.
+  `index.ts` reads `vimEditor.textWidth` through the existing settings API at
+  session start: a positive safe integer, otherwise 79. `attach.ts` passes it
+  in the buffer snapshot alongside the host’s display-width function. No
+  viewport access, automatic formatting, external formatter, or syntax parser.
 - **Visual block:** columns are display columns. The port passes `pi-tui`'s
   `visibleWidth` as `Buffer.measure`, so they agree with what Pi renders; the
   engine stays pure and falls back to a small wide-character table in

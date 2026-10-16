@@ -6,10 +6,15 @@ import { keybindings, theme, tui } from "./fixtures.ts";
 type Factory = (tui: never, theme: never, kb: never) => CustomEditor;
 
 /** Start a session and return the editor factory the extension installed. */
-function start(mode: string, previous?: Factory): Factory | undefined {
+function start(
+  mode: string,
+  previous?: Factory,
+  settings?: unknown,
+): Factory | undefined {
   let installed: Factory | undefined;
   let handler: ((event: unknown, ctx: unknown) => void) | undefined;
   extension({
+    getSettings: () => settings,
     on: (event: string, h: typeof handler) => {
       if (event === "session_start") handler = h;
     },
@@ -34,6 +39,32 @@ function start(mode: string, previous?: Factory): Factory | undefined {
 const create = (factory: Factory) =>
   factory(tui as never, theme as never, keybindings() as never);
 const decorated = (editor: object) => Symbol.for("pi-vim-editor") in editor;
+
+test.each([
+  undefined,
+  0,
+  -1,
+  1.5,
+  "12",
+  null,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+  12,
+])(
+  "loads a positive integer textWidth, otherwise the fixed 79-column default: %j",
+  (textWidth) => {
+    const editor = create(
+      start("tui", undefined, { vimEditor: { textWidth } }) as Factory,
+    );
+    editor.setText(Array(20).fill("word").join(" "));
+    editor.render(20);
+    for (const key of ["\x1b", ..."gg0gqq"]) editor.handleInput(key);
+    const size = textWidth === 12 ? 2 : 16;
+    expect(editor.getText().split("\n")[0]).toBe(
+      Array(size).fill("word").join(" "),
+    );
+  },
+);
 
 test("leaves the editor alone outside the TUI", () => {
   expect(start("print")).toBeUndefined();

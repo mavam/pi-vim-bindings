@@ -84,6 +84,7 @@ These motions do not recognize Markdown, nroff macros, or section markers.
 **Operators and text objects**
 
 `d` deletes, `c` changes, `y` yanks, `gu` lowercases, and `gU` uppercases.
+`gq` and `gw` reflow prose into hard-wrapped lines.
 Combine them with a motion (`dw`, `c$`, `y3j`, `d%`, `d)`, `d}`), double them for whole
 lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 
@@ -106,6 +107,22 @@ blank lines, or `yip` to copy its whole lines. Empty and space/tab-only lines
 separate paragraphs. `ap` prefers trailing blank lines, falling back to leading
 ones at the prompt’s end; `d2ap` deletes two paragraphs. These are prose objects,
 not Markdown heading, list, or fence objects.
+
+**Manual prose reflow**
+
+Use `gwap` to wrap the current paragraph and keep your place in the text, or
+`gqap` to wrap it and move to its end. Both retain blank paragraph separators;
+`gwip` and `gqip` leave those separators outside the formatting range.
+`gqq` and `gww` format the current line; `3gqq` and `3gwgw` format three lines.
+You can also use motions (`gq}`, `gwj`) or format a Visual selection with `gq`
+or `gw`. Formatting always covers whole touched lines, preserves the register,
+and supports one-step `u` and `.` repeat.
+
+The default width is a fixed **79 display columns**, configurable with
+`vimEditor.textWidth`. Wrapping keeps the first line’s indentation, leaves
+long words intact, and refuses ranges containing pasted blocks. It only runs
+when requested: there is no automatic formatting while typing and no Markdown,
+comment, or filetype parsing.
 
 **Edits, undo, and repeat**
 
@@ -141,6 +158,7 @@ selection. `vip` and `vap` start whole-line paragraph selections.
 | `r` + char | Replace every selected character |
 | `~` / `u` / `U` | Toggle case, lowercase, uppercase |
 | `J` / `>` / `<` | Join, indent, outdent the selected lines |
+| `gq` / `gw` | Reflow whole selected lines; `gw` keeps the active cursor’s place in the text |
 | `$` | Block: extend to the end of every line |
 | `I` / `A` | Block: insert / append on every line |
 
@@ -181,6 +199,16 @@ based on reading their source as of October 2026:
 ¹ Requires Pi's hardware cursor and a terminal that supports cursor shapes.
 
 ## ⚙️ Configuration
+
+Set the manual prose wrapping width in Pi’s `settings.json`:
+
+```json
+{ "vimEditor": { "textWidth": 72 } }
+```
+
+`textWidth` accepts a positive integer in display columns. Missing or invalid
+values (including `0`) use **79**, regardless of terminal or editor width.
+This is a fixed default, not Vim’s window-dependent `textwidth=0` fallback.
 
 To make plain `p` paste the system clipboard, and every delete and change
 copy to it, as with Vim's `clipboard=unnamedplus`:

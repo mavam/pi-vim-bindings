@@ -57,6 +57,8 @@ export type Shared = {
    * and `p` / `P` put it.
    */
   unnamed?: boolean;
+  /** Manual prose wrapping width; omitted means 79 columns. */
+  textWidth?: number;
   /** Quit Pi. */
   quit(): void;
   /** Where the mode label goes. */
@@ -201,7 +203,7 @@ export function attach(
   const perform = (key: string) => {
     const depth = port.undoDepth();
     const before = state;
-    const buf = port.read();
+    const buf = { ...port.read(), textWidth: shared.textWidth };
     const result = press(state, key, buf, shared.register, {
       unnamed: shared.unnamed,
     });
