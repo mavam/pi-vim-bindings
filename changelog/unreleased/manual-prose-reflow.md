@@ -3,6 +3,8 @@ title: Manual prose reflow
 type: feature
 authors:
   - mavam
+prs:
+  - 7
 created: 2026-10-16T13:13:13.638992Z
 ---
 
