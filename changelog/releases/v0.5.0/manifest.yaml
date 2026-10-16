@@ -1,0 +1,9 @@
+created: 2026-10-16
+title: Sentence editing and inline code objects
+intro: >-
+  Navigate and edit whole sentences with Vim-style motions and text objects, including
+  counted, repeatable sentence changes. Backtick text objects let you edit inline
+  code, and multiline deletes and case changes now behave more like Vim.
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.4.0
