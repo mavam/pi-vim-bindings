@@ -1,13 +1,13 @@
 /**
- * Sentence motions `(` and `)`, written from Vim's documented behavior
- * (`:help sentence`) and black-box comparisons with Vim.
+ * Sentence motions and objects, written from Vim's documented behavior
+ * (`:help sentence`, `:help object-select`) and black-box comparisons with Vim.
  *
  * The prompt is flattened into a list of stops: one per grapheme cluster, one
  * for the end of each non-empty line, and one for each empty line. A paste
  * marker is a single stop that is never punctuation.
  */
 
-import type { Pos } from "./engine.js";
+import type { Buffer, Pos, Range } from "./engine.js";
 import { clusters } from "./text.js";
 
 type Kind = "blank" | "eol" | "empty" | "end" | "close" | "other";
@@ -169,6 +169,181 @@ export function sentence(
   }
   const { line, col } = stops[i];
   return { line, col };
+}
+
+/** A sentence body or the whitespace between bodies, in stop indices. */
+type Part = { from: number; to: number; blank: boolean };
+
+/**
+ * Objects count bodies and separators separately (`2is` includes the following
+ * whitespace, `3is` the next sentence too). Around objects take pairs of parts.
+ * Keep this partition separate from the direction-dependent motion landings.
+ */
+function partsOf(stops: Stop[]): Part[] {
+  const parts: Part[] = [];
+  const eof = stops.length - 1;
+  let from = 0;
+  while (from < eof) {
+    if (stops[from].kind === "empty") {
+      let to = from + 1;
+      while (to < stops.length && stops[to].kind === "empty") to++;
+      parts.push({ from, to: Math.min(to, eof), blank: false });
+      from = Math.min(to, eof);
+    } else {
+      let to = from;
+      while (to < eof && stops[to].kind !== "empty") {
+        if (ending(stops, to) !== undefined) {
+          to++;
+          while (stops[to].kind === "close") to++;
+          break;
+        }
+        to++;
+      }
+      // An unfinished sentence ends at a paragraph boundary or EOF; its
+      // trailing blanks aren't part of the inner object.
+      while (to > from && white(stops[to - 1])) to--;
+      if (to > from) parts.push({ from, to, blank: false });
+      from = to;
+    }
+    let to = from;
+    while (to < eof && white(stops[to])) to++;
+    // Even a bare newline (or an empty separator after a paragraph) consumes
+    // an inner count. It needn't add a visible character to the selection.
+    parts.push({ from, to, blank: true });
+    from = to;
+  }
+  return parts;
+}
+
+/**
+ * An exclusive sentence-object range. Normal operators apply the usual
+ * exclusive-EOL rules; Visual selections instead stop on the last grapheme.
+ * `extend` selects the next parts from an existing Visual endpoint, in either
+ * direction, rather than resetting the selection to a whole sentence.
+ */
+export function sentenceObject(
+  buf: Buffer,
+  around: boolean,
+  count: number,
+  visual = false,
+  extend?: 1 | -1,
+): Range | undefined {
+  const stops = stopsOf(buf.lines, buf.pastes);
+  const parts = partsOf(stops);
+  const empty: Range = { from: buf.cursor, to: buf.cursor, linewise: false };
+  if (!parts.length) return empty;
+  let at = indexOf(stops, buf.cursor);
+  if (extend) {
+    // Backward selection on a paragraph break starts at its last empty line.
+    if (extend === -1 && count === 1 && stops[at].kind === "empty") {
+      while (stops[at + 1]?.kind === "empty") at++;
+      const { line, col } = stops[at];
+      return {
+        from: { line, col },
+        to: { line: Math.min(line + 1, buf.lines.length - 1), col: 0 },
+        linewise: false,
+      };
+    }
+    // After a paragraph, indentation is the first selectable part when
+    // extending backward, even from its first blank.
+    if (
+      !(
+        extend === -1 &&
+        stops[at].kind === "blank" &&
+        stops[at - 1]?.kind === "empty"
+      )
+    )
+      at += extend;
+    // A Visual endpoint on the last grapheme already covers that line.
+    if (stops[at]?.kind === "eol") at += extend;
+    if (at < 0 || at >= stops.length) return undefined;
+  }
+  let part = parts.findIndex((p) => p.from <= at && at < p.to);
+  if (part < 0) return stops[at].kind === "empty" ? empty : undefined;
+  // Indentation after an empty-line boundary belongs to the next sentence,
+  // unlike whitespace after punctuation. BOF indentation stays in its body.
+  if (
+    !extend &&
+    parts[part].blank &&
+    stops[parts[part].from - 1]?.kind === "empty" &&
+    part + 1 < parts.length
+  )
+    part++;
+  const direction = extend ?? 1;
+  const steps = around ? count * 2 : count;
+  if (
+    !extend &&
+    parts[part].blank &&
+    part === parts.length - 1 &&
+    part > 0 &&
+    (around || count % 2 === 0)
+  )
+    return undefined;
+  let last = Math.max(
+    0,
+    Math.min(parts.length - 1, part + direction * (steps - 1)),
+  );
+  // At EOF an inner count still alternates between the final body and its
+  // trailing whitespace, even when no further sentence exists.
+  if (!around && direction === 1 && part + steps > parts.length) {
+    const blank = (parts[part].blank ? 1 : 0) ^ ((steps - 1) % 2);
+    if (!blank && parts[last].blank && last > part) last--;
+  }
+  if (extend === -1) {
+    const afterParagraph =
+      parts[part].blank && stops[parts[part].from - 1]?.kind === "empty";
+    const units = afterParagraph ? count : steps;
+    last = part;
+    for (let k = 1; k < units && last > 0; k++) {
+      last--;
+      // Moving a Visual start backward crosses a bare line break without
+      // spending a count on an invisible whitespace-only selection.
+      while (
+        last > 0 &&
+        parts[last].blank &&
+        !stops
+          .slice(parts[last].from, parts[last].to)
+          .some((s) => s.kind === "blank")
+      )
+        last--;
+    }
+  }
+  let from = parts[Math.min(part, last)].from;
+  let to = parts[Math.max(part, last)].to;
+  // A whitespace-only prompt has no following sentence; Vim leaves its
+  // final character out of an around object (and even inner counts).
+  if (
+    !extend &&
+    parts.length === 1 &&
+    (around || count % 2 === 0) &&
+    stops[to]?.kind !== "empty"
+  )
+    to = Math.max(from, to - 1);
+  if (around && !extend) {
+    // Prefer trailing whitespace, otherwise take leading blanks. A bare
+    // newline isn't trailing space for this purpose, and leading whitespace
+    // never reaches back across a bare newline into the previous sentence.
+    const tail = parts[last];
+    const trailing =
+      tail.blank &&
+      stops.slice(tail.from, tail.to).some((s) => s.kind === "blank");
+    if (!parts[part].blank && stops[from].kind !== "empty" && !trailing) {
+      const before = parts[part - 1];
+      if (before?.blank) from = before.from;
+    }
+  }
+  if ((!visual || (!extend && count > 1)) && stops[from]?.kind === "empty") {
+    // Normal objects on a paragraph break operate on its last empty line;
+    // Visual objects retain the original selection's first empty line.
+    while (stops[from + 1]?.kind === "empty") from++;
+  }
+  const position = (i: number): Pos => {
+    i = Math.min(i, stops.length - 1);
+    if (stops[i].kind === "eol" && i < stops.length - 1) i++;
+    const { line, col } = stops[i];
+    return { line, col };
+  };
+  return { from: position(from), to: position(to), linewise: false };
 }
 
 type Starts = [at: number, land: number][];

@@ -88,6 +88,50 @@ test("undoes a sentence change in one step", () => {
   expect(editor.getText()).toBe("One. Two. Three.");
 });
 
+test("undoes and repeats a whole inner-sentence change", () => {
+  const { editor, type } = setup();
+  type(
+    ..."One. Two. Three.",
+    "\x1b",
+    "0",
+    "l",
+    "c",
+    "i",
+    "s",
+    ..."New.",
+    "\x1b",
+  );
+  expect(editor.getText()).toBe("New. Two. Three.");
+  type("w", ".");
+  expect(editor.getText()).toBe("New. New. Three.");
+  type("u");
+  expect(editor.getText()).toBe("New. Two. Three.");
+  type("u");
+  expect(editor.getText()).toBe("One. Two. Three.");
+});
+
+test.each([
+  ["One. Two. Three.", "yis", "One.", false],
+  ["One. Two. Three.", "yas", "One. ", false],
+  ["One. Two. Three.", "y2is", "One. ", false],
+  ["One. Two. Three.", "y2as", "One. Two. ", false],
+  ["One.\nTwo.", "yis", "One.", true],
+  ["One.\nTwo.", "visy", "One.", false],
+  ["One.\n  Two.", "vasy", "One.\n  ", false],
+  ["One\ncontinues. Next.", "visy", "One\ncontinues.", false],
+  ["One\n\nTwo.", "vasasy", "One\n\n", false],
+] as const)(
+  "copies sentence objects: %j + %j",
+  (before, keys, text, linewise) => {
+    const { editor, type, copies, shared } = setup();
+    editor.setText(before);
+    type("\x1b", "g", "g", "0", ...keys);
+    expect(editor.getText()).toBe(before);
+    expect(copies).toEqual([text]);
+    expect(shared.register).toEqual({ text, linewise });
+  },
+);
+
 test("highlights the Visual selection", () => {
   const { editor, type } = setup();
   type(..."foo bar", "\x1b", "0", "v", "e");
@@ -267,6 +311,10 @@ test.each([
   ["aa|aa bbbb cccc", "i<BS><Esc>w.", "aaabbbb cccc"],
   ["|a b c d e f g h", "dw2..", "f g h"],
   ["|A. B. C. D. E.", "d)2.", "D. E."],
+  ["|A. B. C. D. E. F. G.", "2d3is2.", "E. F. G."],
+  ["|A. B. C. D. E.", "d2as2.", "E."],
+  ["|A. B. C. D. E. F. G.", "2das.", "E. F. G."],
+  ["|One\nmore.\nTwo\nmore.\nThree.", "visdj0.", "\n\nThree."],
   ["|abcd xyz", "i<Del>X<Esc>w2.", "Xbcd XXz"],
   ["|one\ntwo\nthree\nfour\nfive", "Sx<Esc>j2.", "x\nx\nfour\nfive"],
   ["|abc def ghi", "vlcX<Esc>w2.", "Xc Xf ghi"],

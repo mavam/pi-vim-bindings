@@ -3,7 +3,7 @@
  * No Pi imports. Columns are UTF-16 offsets, as in Pi's editor.
  */
 
-import { sentence } from "./sentence.js";
+import { sentence, sentenceObject } from "./sentence.js";
 import {
   type Class,
   classify,
@@ -617,14 +617,49 @@ function pressVisual(
       state: leave("normal"),
       effects: replaceAll(selectedSpans(state, buf), key, buf),
     };
-  if (keys.length === 2 && (keys[0] === "i" || keys[0] === "a")) {
-    const range = objectRange(buf, keys[0] === "a", key);
-    if (!range || range.to.col <= range.from.col)
+  // Reuse operator parsing for counted objects without making counted INSERT
+  // entries valid. Existing line-local objects keep their selection behavior.
+  const object = /^(?:[1-9][0-9]*)?[ia]/.test(keys.join(""))
+    ? parse(["d", ...keys])
+    : undefined;
+  if (object === "pending") return { state: { ...state, keys }, effects: [] };
+  if (
+    object &&
+    typeof object !== "string" &&
+    object.kind === "op" &&
+    object.target.kind === "object"
+  ) {
+    const target = object.target;
+    const anchor = state.anchor ?? buf.cursor;
+    const forward =
+      anchor.line < buf.cursor.line ||
+      (anchor.line === buf.cursor.line && anchor.col < buf.cursor.col);
+    const extended =
+      anchor.line !== buf.cursor.line || anchor.col !== buf.cursor.col;
+    const direction = extended ? (forward ? 1 : -1) : undefined;
+    const range =
+      target.object === "s"
+        ? sentenceObject(buf, target.around, target.count ?? 1, true, direction)
+        : objectRange(buf, target.around, target.object, target.count);
+    if (
+      !range ||
+      range.to.line < range.from.line ||
+      (range.to.line === range.from.line && range.to.col <= range.from.col)
+    )
       return { state: stay(), effects: [] };
-    const end = clamp(buf, { line: range.to.line, col: range.to.col - 1 });
+    // An exclusive end in column zero belongs to the preceding line, not the
+    // first character of the following sentence. Clamp by grapheme, not byte.
+    const end =
+      range.to.col === 0 && range.to.line > range.from.line
+        ? clamp(buf, {
+            line: range.to.line - 1,
+            col: buf.lines[range.to.line - 1].length,
+          })
+        : clamp(buf, { line: range.to.line, col: range.to.col - 1 });
+    const extending = target.object === "s" && extended;
     return {
-      state: stay({ mode: "visual", anchor: range.from }),
-      effects: [{ kind: "move", to: end }],
+      state: stay({ mode: "visual", anchor: extending ? anchor : range.from }),
+      effects: [{ kind: "move", to: extending && !forward ? range.from : end }],
     };
   }
   const parsed = parse(keys);
@@ -1173,7 +1208,7 @@ const CHANGES = new Set([
   ">>",
   "<<",
 ]);
-const OBJECTS = new Set("wW\"'()[]{}");
+const OBJECTS = new Set("wWs\"'()[]{}");
 
 type Op = "d" | "c" | "y" | "gu" | "gU";
 const OPERATORS: readonly Op[] = ["d", "c", "y", "gu", "gU"];
@@ -1241,13 +1276,12 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
       if (i >= keys.length) return "pending";
       const object = keys[i++];
       if (!OBJECTS.has(object)) return "invalid";
-      // Only word objects take counts: `2diw`, `d3aW`.
+      // Word and sentence objects take counts: `2diw`, `d3as`.
       const total =
         n === undefined && m === undefined
           ? undefined
           : Math.min((n ?? 1) * (m ?? 1), MAX_COUNT);
-      if (total !== undefined && object !== "w" && object !== "W")
-        return "invalid";
+      if (total !== undefined && !"wWs".includes(object)) return "invalid";
       return {
         kind: "op",
         op,
@@ -1327,6 +1361,12 @@ function execute(
     };
   } else if (target.kind === "object") {
     range = objectRange(buf, target.around, target.object, target.count);
+    if (range && target.object === "s") {
+      range = toRange({ ...buf, cursor: range.from }, range.to, "exclusive");
+      // Sentence objects start at the object's beginning, even when the
+      // exclusive endpoint promotes a yank or case change to linewise.
+      buf = { ...buf, cursor: range.from };
+    }
   } else if (op === "c" && /^[wW]$/.test(target.key)) {
     range = changeWord(buf, target);
   } else {
@@ -1995,6 +2035,7 @@ function objectRange(
   object: string,
   count = 1,
 ): Range | undefined {
+  if (object === "s") return sentenceObject(buf, around, count);
   const { cursor, lines } = buf;
   const line = lines[cursor.line];
   const range = (start: number, end: number): Range => ({
