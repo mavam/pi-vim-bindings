@@ -85,12 +85,14 @@ lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 | --- | --- |
 | word / WORD | `iw` `aw` / `iW` `aW` |
 | sentence | `is` `as` |
-| quotes | `i"` `a"`, `i'` `a'` |
+| quotes | `i"` `a"`, `i'` `a'`, `` i` `` `` a` `` |
 | brackets | `i(` `a(`, `i[` `a[`, `i{` `a{` (closing brackets work too) |
 
 Sentence objects can span lines: `cis` changes the whole current sentence,
 even from its middle, and `das` also takes adjacent separator whitespace.
 Use `d2as` for two sentences. Quote and bracket objects stay on the current line.
+With the cursor inside `` `src/old.ts` ``, type `` ci` `` to replace the path
+while keeping the backticks.
 
 **Edits, undo, and repeat**
 

@@ -111,10 +111,16 @@ sentence start deletes the sentence and the blanks after it.
 | Doubled = whole line | `dd`, `cc`, `yy`, `guu`, `gUU` |
 | Word / WORD object | `diw`, `caw`, `ciW`, `daW` |
 | Sentence object, across lines | `dis`, `cas`, `yis`, `guas`, `gUis` |
-| Quote object, same line | `ci"`, `da'` |
+| Quote object, same line | `ci"`, `da'`, `` ci` ``, `` da` `` |
 | Bracket object, same line | `ci(`, `da[`, `yi{`; the closing bracket works too (`ci)`) |
 
 Any operator whose range touches a paste marker is refused with a notice.
+
+Quote objects support single quotes, double quotes, and backticks. Inner
+objects keep the delimiters; around objects include them but not surrounding
+whitespace. They skip backslash-escaped delimiters and look forward to the
+next pair on the same line if the cursor isn't in one. Backticks use ordinary
+quote pairs, not Markdown multi-backtick spans or fences.
 
 Sentence objects use the same boundaries as `(` and `)`, but select the whole
 current sentence even when the cursor is in its middle:
@@ -174,7 +180,7 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 | `v` / `V` / `Ctrl-V` | Switch between charwise, linewise, and block; the same key again leaves |
 | `o` | Jump to the other end of the selection |
 | `O` | Block: jump to the other corner on the same line; otherwise like `o` |
-| `iw` `aw` `iW` `aW` `is` `as` `i"` `a(` … | Select a text object (charwise) |
+| `iw` `aw` `iW` `aW` `is` `as` `i"` `` i` `` `` a` `` `a(` … | Select a text object (charwise) |
 | `d` / `x` | Delete the selection |
 | `c` / `s` | Change the selection: delete, then INSERT |
 | `y` | Yank the selection; also goes to the system clipboard |
@@ -316,7 +322,7 @@ Deliberate, to keep the scope small:
 
 Candidates for later, roughly by demand:
 
-- Backtick quotes, `b`/`B` bracket aliases, multi-line bracket objects
+- `b`/`B` bracket aliases, multi-line bracket objects
 
 Not planned: `jj`/`jk` escape (pi-vim #45).
 

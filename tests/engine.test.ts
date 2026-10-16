@@ -260,6 +260,54 @@ test.each([
   expect(run(before, keys)).toBe(after);
 });
 
+// Backticks use the same line-local pairing as single and double quotes.
+test.each([
+  ["`src/|old.ts`", "ci`", "`|` -- insert"],
+  ["`src/|old.ts`", "ci`src/new.ts<esc>", "`src/new.t|s`"],
+  ["x |`ab` y", "di`", "x `|` y"],
+  ["x `a|b` y", "di`", "x `|` y"],
+  ["x `ab|` y", "di`", "x `|` y"],
+  ["x `a|b` y", "da`", "x | y"],
+  ["x `a|b` y", "ca`z<esc>", "x |z y"],
+  ["x `a|b` y", "yi`P", "x `a|bab` y"],
+  ["x `a|b` y", "ya`P", "x `ab|``ab` y"],
+  ["x `A|B` y", "gui`", "x `|ab` y"],
+  ["x `a|b` y", "gUa`", "x |`AB` y"],
+  // Look forward to the next pair, but never backward or across lines.
+  ["|before `ab`", "di`", "before `|`"],
+  ["`ab` |between `cd`", "di`", "`ab` between `|`"],
+  ["`ab` a|fter", "di`", "`ab` a|fter"],
+  ["|`unclosed", "di`", "|`unclosed"],
+  ["`|one\ntwo`", "di`", "`|one\ntwo`"],
+  ["|no pair\n`ab`", "di`", "|no pair\n`ab`"],
+  ["`a\\`|b`", "di`", "`|`"],
+  ["`a\\\\|` tail", "di`", "`|` tail"],
+  // Empty inner objects still let change enter INSERT.
+  ["|``", "ci`x<esc>", "`|x`"],
+  ["|``", "di`", "|``"],
+  ["x |`` y", "da`", "x | y"],
+  ["`中|文👨‍👩‍👧‍👦e\u0301`", "ci`新<esc>", "`|新`"],
+  ["x `a|b` y", "vi`d", "x `|` y"],
+  ["x `a|b` y", "va`d", "x | y"],
+  ["x `a|b` y", "Vi`d", "x `|` y"],
+  ["x `a|b` y", "<C-v>a`d", "x | y"],
+  ["`|e\u0301👨‍👩‍👧‍👦`", "vi`d", "`|`"],
+  ["|``", "vi`", "|`` -- visual"],
+  // Counts remain unsupported, just like other quote objects.
+  ["`a|b`", "2di`", "`a|b`"],
+  ["`a|b`", "d2a`", "`a|b`"],
+  ["`a|b`", "v2i`", "`a|b` -- visual"],
+])("backtick object: %j + %j → %j", (before, keys, after) => {
+  expect(run(before, keys)).toBe(after);
+});
+
+test.each(["di`", "ca`", "yi`", "gui`", "gUa`", "vi`d", "va`y"])(
+  "refuses backtick objects touching paste markers: %s",
+  (keys) => {
+    expect(run(`\`|${paste}\``, keys)).toBe("refused");
+  },
+);
+
 // Sentence objects: public Vim object-select semantics, checked with Vim.
 test.each([
   ["On|e. Two.", "dis", "| Two."],
