@@ -9,6 +9,7 @@ import { attach, type Position, type Shared } from "./attach.js";
 
 import { createClipboard, readCommands } from "./clipboard.js";
 import { type Cursor, cursorFor } from "./cursor.js";
+import { textWidth } from "./reflow.js";
 
 export type {
   VimEditorCapability,
@@ -65,6 +66,10 @@ export default function (pi: ExtensionAPI): void {
     shared.quit = () => ctx.shutdown();
     const settings = pi.getSettings?.();
     shared.position = position(settings);
+    shared.textWidth = textWidth(
+      (settings as { vimEditor?: { textWidth?: unknown } })?.vimEditor
+        ?.textWidth,
+    );
     cursorShape =
       (settings as { vimEditor?: { cursorShape?: unknown } })?.vimEditor
         ?.cursorShape === true;

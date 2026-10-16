@@ -4,6 +4,7 @@
  */
 
 import { paragraphMotion, paragraphObject } from "./paragraph.js";
+import { reflow } from "./reflow.js";
 import { sentence, sentenceObject } from "./sentence.js";
 import {
   blank,
@@ -24,6 +25,8 @@ export type Buffer = {
   pastes?: ReadonlySet<number>;
   /** Terminal columns of a cluster; the host passes its own measure. */
   measure?: (cluster: string) => number;
+  /** Manual prose wrapping width in terminal columns (default 79). */
+  textWidth?: number;
 };
 /** `block` registers come from Visual block mode and put as a block. */
 export type Register = {
@@ -613,6 +616,15 @@ function pressVisual(
     }
     if (key === "i" || key === "a")
       return { state: { ...state, keys }, effects: [] };
+  }
+  if (keys.length === 2 && keys[0] === "g" && (key === "q" || key === "w")) {
+    const range = selection(state, buf);
+    return {
+      state: leave("normal"),
+      effects: range
+        ? operate(key === "q" ? "gq" : "gw", range, buf, true)
+        : [],
+    };
   }
   if (keys.length === 2 && keys[0] === "r")
     return {
@@ -1262,8 +1274,8 @@ const CHANGES = new Set([
 ]);
 const OBJECTS = new Set("wWsp\"'`()[]{}");
 
-type Op = "d" | "c" | "y" | "gu" | "gU";
-const OPERATORS: readonly Op[] = ["d", "c", "y", "gu", "gU"];
+type Op = "d" | "c" | "y" | "gu" | "gU" | "gq" | "gw";
+const OPERATORS: readonly Op[] = ["d", "c", "y", "gu", "gU", "gq", "gw"];
 type Motion = {
   kind: "motion";
   key: string;
@@ -1319,9 +1331,19 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
     i += op.length;
     const m = count();
     if (i >= keys.length) return "pending";
-    // Doubled, the operator acts on lines: `dd`, `yy`, `guu`.
-    if (m === undefined && keys[i] === op.at(-1)) {
-      return { kind: "op", op, target: { kind: "line", count: n } };
+    // `gq2q` and `gw2gw` count lines; counted `gww` remains a word motion.
+    const format = op === "gq" || op === "gw";
+    if (format && keys[i] === "g" && i + 1 === keys.length) return "pending";
+    const doubled =
+      (keys[i] === op.at(-1) &&
+        !(op === "gw" && (n !== undefined || m !== undefined))) ||
+      (format && keys.slice(i).join("") === op);
+    if (doubled && (m === undefined || format)) {
+      const total =
+        n === undefined && m === undefined
+          ? undefined
+          : Math.min((n ?? 1) * (m ?? 1), MAX_COUNT);
+      return { kind: "op", op, target: { kind: "line", count: total } };
     }
     if (/^[ia]$/.test(keys[i])) {
       const around = keys[i++] === "a";
@@ -1417,13 +1439,31 @@ function execute(
       range = toRange({ ...buf, cursor: range.from }, range.to, "exclusive");
       // Sentence objects start at the object's beginning, even when the
       // exclusive endpoint promotes a yank or case change to linewise.
-      buf = { ...buf, cursor: range.from };
+      if (op !== "gw" && op !== "gq") buf = { ...buf, cursor: range.from };
     }
   } else if (op === "c" && /^[wW]$/.test(target.key)) {
     range = changeWord(buf, target);
   } else {
     const resolved = resolve(target, buf, true);
-    if (resolved) range = toRange(buf, resolved.to, resolved.kind);
+    if (resolved) {
+      range = toRange(buf, resolved.to, resolved.kind);
+      // Sentence/paragraph boundary motions leave gq on the boundary line,
+      // even when the exclusive range stops on the preceding line.
+      if (
+        op === "gq" &&
+        (target.key === ")" || target.key === "}") &&
+        resolved.to.line > range.to.line
+      ) {
+        const effects = operate(op, range, buf);
+        if (effects.some((e) => e.kind === "refuse")) return effects;
+        const after = apply(buf, effects);
+        const line = resolved.to.line + after.lines.length - buf.lines.length;
+        return [
+          ...effects,
+          { kind: "move", to: { line, col: firstNonBlank(after.lines[line]) } },
+        ];
+      }
+    }
   }
   return range ? operate(op, range, buf) : [];
 }
@@ -1624,6 +1664,34 @@ function join(buf: Buffer, count: number): Effect[] {
 
 function operate(op: Op, range: Range, buf: Buffer, visual = false): Effect[] {
   const { lines } = buf;
+  if (op === "gq" || op === "gw") {
+    const first = range.from.line;
+    // Characterwise selections ending at a newline don't touch the next line.
+    const last =
+      !range.linewise && range.to.col === 0 && range.to.line > first
+        ? range.to.line - 1
+        : range.to.line;
+    const whole: Range = {
+      from: { line: first, col: 0 },
+      to: { line: last, col: 0 },
+      linewise: true,
+    };
+    // Check the expanded whole-line range before producing any mutation.
+    if (touches(buf, whole)) return [{ kind: "refuse" }];
+    const formatted = reflow(buf, first, last);
+    const text = formatted.lines.join("\n");
+    const cursor = op === "gw" ? formatted.cursor : formatted.end;
+    if (text === lines.slice(first, last + 1).join("\n"))
+      return [{ kind: "move", to: clamp(buf, cursor) }];
+    return replace(
+      buf,
+      whole.from,
+      { line: last, col: lines[last].length },
+      text,
+      cursor,
+      "normal",
+    );
+  }
   // Vim: a multi-line charwise delete from the indent to a line's end, or
   // to only blanks before it, deletes whole lines, so `2D` at the start of a
   // line removes two lines. A Visual selection is deleted as selected.

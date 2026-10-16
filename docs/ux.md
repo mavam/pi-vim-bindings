@@ -122,7 +122,7 @@ prompt’s start) leaves the previous register unchanged, unlike Vim.
 ### Operators
 
 `d` delete · `c` change (delete, then INSERT) · `y` yank · `gu` lowercase ·
-`gU` uppercase.
+`gU` uppercase · `gq` reflow · `gw` reflow and keep the cursor’s place.
 
 | Form | Example |
 | --- | --- |
@@ -185,6 +185,44 @@ lists, or fences, nroff macros, or section markers (including form feeds and
 braces at the start of a line). Pasted blocks stay opaque, and operators touching
 one are refused.
 
+### Manual prose reflow
+
+Use `gwap` to hard-wrap a paragraph while keeping your place in its text;
+`gqap` instead moves to the first non-blank of the last selected line, including
+a trailing blank separator. `gwip` and `gqip` exclude surrounding separators.
+`gw` follows the original character as lines wrap or join, not its old numeric
+line and column. If whitespace under the cursor disappears at a wrap, it lands
+on the preceding character. In Visual mode, it preserves the active cursor,
+not the selection’s anchor.
+
+- `gq` and `gw` accept the supported motions and text objects. They format
+  whole touched lines, even for a word or sentence object or a characterwise
+  or block Visual selection. Exclusive endpoints at column zero normally
+  exclude that line. `gq}` and `gq)` still land on the following boundary line.
+- `gqq`, `gqgq`, `gww`, and `gwgw` format the current line. Use `3gqq` or
+  `3gwgw` for three lines; `gq3q` and `gw3gw` also work. As in Vim, counted
+  `gww` (`3gww` or `gw3w`) is a word motion, not a line count. Operator and
+  motion/object counts multiply (`2gw3ap` formats six paragraphs).
+- Space/tab-only lines separate paragraphs and are retained exactly, including
+  separators selected by `ap`. Each paragraph uses its first selected line’s
+  indentation on all output lines. Spaces and tabs between words stay intact
+  unless replaced by a line break; joining source lines inserts one space and
+  removes their indentation. Trailing spaces/tabs on text lines are removed.
+- Width counts terminal display columns, including indentation. Wide Unicode
+  characters count twice, combining sequences stay together, and words longer
+  than the width are not split. Spaces and tabs are the only word-break points;
+  tabs use eight-column stops for formatting. Non-breaking spaces stay in words.
+- Formatting preserves the register and clipboard, is one undo step, and
+  repeats with `.`. An unchanged result creates no undo step and does not replace
+  the previous repeatable change. A pasted block anywhere on a touched line
+  refuses the entire operation before any edits.
+
+The width is `vimEditor.textWidth`, a positive integer defaulting to a fixed
+79 columns, independent of the viewport (§10). There is no automatic formatting
+while typing, external formatter, or interpretation of Markdown, comments,
+filetypes, or Vim’s `formatoptions`. In particular, list prefixes and fences
+are ordinary text, not protected syntax.
+
 ### Single-key edits
 
 | Key | Action |
@@ -234,6 +272,7 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 | `p` / `P` | Replace the selection with the register; the replaced text goes into the register (not in block mode) |
 | `r{c}` | Replace every selected character with `c` |
 | `J` | Join the selected lines |
+| `gq` / `gw` | Reflow whole touched lines; `gw` keeps the active cursor’s place |
 | `~` / `u` / `U` | Toggle case / lowercase / uppercase the selection |
 | `>` / `<` | Indent / outdent the selected lines by two spaces |
 | Esc | Leave without changing anything |
@@ -391,7 +430,14 @@ motions, a configurable indent width.
 
 ## 10. Configuration
 
-Settings go in Pi's `settings.json` (global or project):
+Settings go in Pi's `settings.json` (global or project).
+
+Set `"vimEditor": { "textWidth": 72 }` to wrap prose at 72 display columns.
+The default is a fixed 79, not Vim’s window-dependent `textwidth=0` fallback.
+Only positive safe integers are accepted; missing or invalid values, including
+`0`, fall back to 79. Settings are read when a session starts.
+
+To place the mode label:
 
 ```json
 { "vimEditor": { "indicator": "top-left" } }
