@@ -73,11 +73,12 @@ After you submit a prompt, the editor is back in INSERT mode.
 | `f` `F` `t` `T` + char | To / till a character on the line |
 | `;` / `,` | Repeat the last `f F t T` / in reverse |
 | `%` | Jump to the matching bracket |
+| `(` / `)` | Back / forward to a sentence start |
 
 **Operators and text objects**
 
 `d` deletes, `c` changes, `y` yanks, `gu` lowercases, and `gU` uppercases.
-Combine them with a motion (`dw`, `c$`, `y3j`, `d%`), double them for whole
+Combine them with a motion (`dw`, `c$`, `y3j`, `d%`, `d)`), double them for whole
 lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 
 | Object | Inner / around |
@@ -197,3 +198,7 @@ sequences. The extension resets the shape with DECSCUSR 0, the terminal's
 default (a blinking block in xterm), when the prompt loses focus, Pi opens an external editor or suspends,
 or the extension shuts down or reloads. It does not query or restore your
 pre-Pi cursor shape.
+
+## 📄 License
+
+[MIT](https://github.com/mavam/pi-vim-editor/blob/main/LICENSE)

@@ -130,6 +130,7 @@ src/
 ├── attach.ts     # instance patching: input routing (§5), mode label (§7)
 ├── status.ts     # read-only status for other extensions (§7.1)
 ├── engine.ts     # PURE: key → effects; parser, motions, objects
+├── sentence.ts   # PURE: sentence motions `(` `)`
 ├── text.ts       # PURE: graphemes, word classes, paste-marker spans
 └── port.ts       # editor capability adapter (§6)
 ```

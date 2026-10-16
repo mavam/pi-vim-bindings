@@ -3,6 +3,7 @@
  * No Pi imports. Columns are UTF-16 offsets, as in Pi's editor.
  */
 
+import { sentence } from "./sentence.js";
 import {
   type Class,
   classify,
@@ -170,7 +171,12 @@ export function selection(state: State, buf: Buffer): Range | undefined {
   const span = clusters(buf.lines[to.line], buf.pastes).find(
     (s) => s.start === to.col,
   );
-  const end = span ? { line: to.line, col: span.end } : to;
+  // The character selected on an empty line is its newline.
+  const end = span
+    ? { line: to.line, col: span.end }
+    : to.line < buf.lines.length - 1
+      ? { line: to.line + 1, col: 0 }
+      : to;
   return { from, to: end, linewise: false };
 }
 
@@ -594,7 +600,7 @@ function pressVisual(
     const op = VISUAL_OPS[key];
     if (op) {
       const range = selection(state, buf);
-      const effects = range ? operate(op, range, buf) : [];
+      const effects = range ? operate(op, range, buf, true) : [];
       const insert = effects.some((e) => e.kind === "mode");
       return { state: leave(insert ? "insert" : "normal"), effects };
     }
@@ -935,8 +941,9 @@ function transform(
   buf: Buffer,
 ): Effect[] {
   const effects: Effect[] = [];
-  const first = spans.find((s) => s.end > s.start);
-  if (!first) return [];
+  if (!spans.length) return [];
+  // Vim: the cursor goes to the start, even on an empty line.
+  const first = spans[0];
   for (const s of spans) {
     if (s.end <= s.start) continue;
     const line = buf.lines[s.line];
@@ -1138,8 +1145,8 @@ export function apply(buf: Buffer, effects: readonly Effect[]): Buffer {
 // --- Parsing ---------------------------------------------------------------
 
 const MAX_COUNT = 9999;
-const MOTIONS = new Set("hjklwbeWBE0^$G;,%");
-const COUNTED = new Set("hjklwbeWBEG;,fFtTg$");
+const MOTIONS = new Set("hjklwbeWBE0^$G;,%()");
+const COUNTED = new Set("hjklwbeWBEG;,fFtTg$()");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
 const EDITS = new Set([..."iaIAoOxXsSDCYJpPu.~R", CTRL_R]);
@@ -1523,16 +1530,18 @@ function join(buf: Buffer, count: number): Effect[] {
   return replace(buf, from, to, text, { line: cursor.line, col }, "normal");
 }
 
-function operate(op: Op, range: Range, buf: Buffer): Effect[] {
+function operate(op: Op, range: Range, buf: Buffer, visual = false): Effect[] {
   const { lines } = buf;
-  // Vim: a multi-line charwise delete from the indent to a line's end
-  // deletes whole lines, so `2D` at the start of a line removes two lines.
+  // Vim: a multi-line charwise delete from the indent to a line's end, or
+  // to only blanks before it, deletes whole lines, so `2D` at the start of a
+  // line removes two lines. A Visual selection is deleted as selected.
   if (
     op === "d" &&
+    !visual &&
     !range.linewise &&
     range.from.line < range.to.line &&
-    !lines[range.from.line].slice(0, range.from.col).trim() &&
-    range.to.col === lines[range.to.line].length
+    blank(lines[range.from.line].slice(0, range.from.col)) &&
+    blank(lines[range.to.line].slice(range.to.col))
   )
     range = {
       from: { line: range.from.line, col: 0 },
@@ -1540,16 +1549,41 @@ function operate(op: Op, range: Range, buf: Buffer): Effect[] {
       linewise: true,
     };
   const { from, to, linewise } = range;
-  if (!linewise && from.line === to.line && from.col === to.col)
+  if (!linewise && from.line === to.line && from.col === to.col) {
+    if (op === "gu" || op === "gU") {
+      const span = clusters(lines[from.line], buf.pastes).find(
+        (s) => s.start === from.col,
+      );
+      return span
+        ? transform(
+            [{ line: from.line, start: span.start, end: span.end, eol: false }],
+            CASES[op[1]],
+            buf,
+          )
+        : [];
+    }
     return op === "c"
       ? [
           { kind: "move", to: from },
           { kind: "mode", mode: "insert" },
         ]
       : [];
+  }
   if (touches(buf, range)) return [{ kind: "refuse" }];
-  if (op === "gu" || op === "gU")
-    return transform(rangeSpans(range, buf), CASES[op[1]], buf);
+  if (op === "gu" || op === "gU") {
+    const effects = transform(rangeSpans(range, buf), CASES[op[1]], buf);
+    if (!linewise || effects[0]?.kind === "refuse") return effects;
+    return [
+      ...effects,
+      {
+        kind: "move",
+        to: clamp(apply(buf, effects), {
+          line: from.line,
+          col: buf.cursor.col,
+        }),
+      },
+    ];
+  }
   const yank: Effect = {
     kind: "yank",
     register: { text: textOf(lines, range), linewise },
@@ -1598,7 +1632,10 @@ function operate(op: Op, range: Range, buf: Buffer): Effect[] {
   const after = splice(lines, start, stop, "");
   const cursor = clamp(
     { ...buf, lines: after },
-    { line, col: firstNonBlank(after[line]) },
+    {
+      line,
+      col: blank(after[line]) ? after[line].length : firstNonBlank(after[line]),
+    },
   );
   return [yank, { kind: "replace", from: start, to: stop, text: "", cursor }];
 }
@@ -1850,6 +1887,11 @@ function resolve(
       if (i === start) return undefined;
       return { to: at(cells[i]), kind: "inclusive" };
     }
+    case "(":
+    case ")": {
+      const to = sentence(lines, cursor, motion.key === ")", n, buf.pastes);
+      return to && { to, kind: "exclusive" };
+    }
     case "%": {
       const to = matchBracket(buf);
       return to && { to, kind: "inclusive" };
@@ -1924,8 +1966,8 @@ function toRange(buf: Buffer, target: Pos, kind: Kind): Range {
     if (span) to = { line: to.line, col: span.end };
   } else if (to.col === 0 && to.line > from.line) {
     // Vim: an exclusive motion ending in column 0 stops at the previous EOL,
-    // and becomes linewise if it started at or before the first non-blank.
-    if (from.col <= firstNonBlank(lines[from.line]))
+    // and becomes linewise if it started in the indent.
+    if (blank(lines[from.line].slice(0, from.col)))
       return {
         from: { line: from.line, col: 0 },
         to: { line: to.line - 1, col: 0 },
@@ -2034,6 +2076,8 @@ function escaped(line: string, p: number): boolean {
 // --- Helpers ---------------------------------------------------------------
 
 const text = (line: string, span: Span) => line.slice(span.start, span.end);
+/** Only spaces and tabs, as Vim's indent and trailing-blank checks see it. */
+const blank = (s: string) => /^[ \t]*$/.test(s);
 
 function clusterIndex(spans: Span[], col: number): number {
   const i = spans.findIndex((s) => col < s.end);

@@ -80,6 +80,14 @@ test("undoes and repeats whole changes, and copies yanks", () => {
   expect(copies).toEqual(["foo foo"]);
 });
 
+test("undoes a sentence change in one step", () => {
+  const { editor, type } = setup();
+  type(..."One. Two. Three.", "\x1b", "0", "c", "2", ")", ..."New. ", "\x1b");
+  expect(editor.getText()).toBe("New. Three.");
+  type("u");
+  expect(editor.getText()).toBe("One. Two. Three.");
+});
+
 test("highlights the Visual selection", () => {
   const { editor, type } = setup();
   type(..."foo bar", "\x1b", "0", "v", "e");
@@ -258,6 +266,7 @@ test.each([
   ["|abcdef\nabcdef\n中def\n中def", "<C-v>jld3G0.", "cdef\ncdef\ndef\ndef"],
   ["aa|aa bbbb cccc", "i<BS><Esc>w.", "aaabbbb cccc"],
   ["|a b c d e f g h", "dw2..", "f g h"],
+  ["|A. B. C. D. E.", "d)2.", "D. E."],
   ["|abcd xyz", "i<Del>X<Esc>w2.", "Xbcd XXz"],
   ["|one\ntwo\nthree\nfour\nfive", "Sx<Esc>j2.", "x\nx\nfour\nfive"],
   ["|abc def ghi", "vlcX<Esc>w2.", "Xc Xf ghi"],
