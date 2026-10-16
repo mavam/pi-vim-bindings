@@ -1,6 +1,8 @@
 ---
 title: Paragraph text objects
 type: feature
+prs:
+  - 5
 authors:
   - mavam
 created: 2026-10-16T10:13:25.431814Z
