@@ -2,6 +2,9 @@
 
 export type Span = { start: number; end: number };
 
+/** Only spaces and tabs, as Vim's indent and paragraph-object checks see it. */
+export const blank = (s: string) => /^[ \t]*$/.test(s);
+
 /** Character class: blank, punctuation, word, or paste marker. */
 export type Class = 0 | 1 | 2 | 3;
 

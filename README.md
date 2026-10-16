@@ -85,6 +85,7 @@ lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 | --- | --- |
 | word / WORD | `iw` `aw` / `iW` `aW` |
 | sentence | `is` `as` |
+| paragraph (whole lines) | `ip` `ap` |
 | quotes | `i"` `a"`, `i'` `a'`, `` i` `` `` a` `` |
 | brackets | `i(` `a(`, `i[` `a[`, `i{` `a{` (closing brackets work too) |
 
@@ -93,6 +94,12 @@ even from its middle, and `das` also takes adjacent separator whitespace.
 Use `d2as` for two sentences. Quote and bracket objects stay on the current line.
 With the cursor inside `` `src/old.ts` ``, type `` ci` `` to replace the path
 while keeping the backticks.
+
+Use `cip` to rewrite an instruction paragraph, `dap` to delete it with adjacent
+blank lines, or `yip` to copy its whole lines. Empty and space/tab-only lines
+separate paragraphs. `ap` prefers trailing blank lines, falling back to leading
+ones at the prompt’s end; `d2ap` deletes two paragraphs. These are prose objects,
+not Markdown heading, list, or fence objects.
 
 **Edits, undo, and repeat**
 
@@ -117,7 +124,8 @@ into a pasted block (`[paste #1 +24 lines]`) are refused.
 
 **Visual modes**
 
-Motions and text objects (`viw`, `vi(`, `vis`, `v2as`) extend the selection.
+Motions and text objects (`viw`, `vi(`, `vis`, `v2as`, `vip`, `v2ap`) extend the
+selection. `vip` and `vap` start whole-line paragraph selections.
 
 | Key | Action |
 | --- | --- |
@@ -153,7 +161,7 @@ based on reading their source as of October 2026:
 | Inline working indicator | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V` `Ctrl-V` |
 | Operators | `d` `c` `y` `gu` `gU` | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` | limited | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` |
-| Text objects | word, sentence, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
+| Text objects | word, sentence, paragraph, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
 | `Ctrl-R` redo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |

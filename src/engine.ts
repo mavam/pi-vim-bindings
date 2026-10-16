@@ -3,8 +3,10 @@
  * No Pi imports. Columns are UTF-16 offsets, as in Pi's editor.
  */
 
+import { paragraphObject } from "./paragraph.js";
 import { sentence, sentenceObject } from "./sentence.js";
 import {
+  blank,
   type Class,
   classify,
   clusters,
@@ -637,6 +639,56 @@ function pressVisual(
     const extended =
       anchor.line !== buf.cursor.line || anchor.col !== buf.cursor.col;
     const direction = extended ? (forward ? 1 : -1) : undefined;
+    if (target.object === "p") {
+      // A single selected line initializes the whole paragraph, unless it
+      // already covers the entire run. Multiline selections keep their kind.
+      const multiline = anchor.line !== buf.cursor.line;
+      const count = target.count ?? 1;
+      const fresh = multiline
+        ? undefined
+        : paragraphObject(buf, target.around, count);
+      // Single-line selections first require a complete counted object. If V
+      // already covers its first run, extend once more, keeping any leading
+      // separator selected by the fresh around-object at EOF.
+      if (!multiline && !fresh) return { state: stay(), effects: [] };
+      const current =
+        state.mode === "vline" ? paragraphObject(buf, false) : undefined;
+      const extending =
+        multiline || (current && current.from.line === current.to.line);
+      const range = extending
+        ? (paragraphObject(
+            buf,
+            target.around,
+            count,
+            anchor.line > buf.cursor.line ? -1 : 1,
+          ) ?? fresh)
+        : fresh;
+      if (!range) return { state: stay(), effects: [] };
+      const edge =
+        extending && anchor.line > buf.cursor.line ? range.from : range.to;
+      return {
+        state: stay(
+          multiline
+            ? {}
+            : {
+                mode: "vline",
+                anchor:
+                  fresh && anchor.line !== fresh.from.line
+                    ? fresh.from
+                    : anchor,
+              },
+        ),
+        effects: [
+          {
+            kind: "move",
+            to: clamp(buf, {
+              line: edge.line,
+              col: 0,
+            }),
+          },
+        ],
+      };
+    }
     const range =
       target.object === "s"
         ? sentenceObject(buf, target.around, target.count ?? 1, true, direction)
@@ -1208,7 +1260,7 @@ const CHANGES = new Set([
   ">>",
   "<<",
 ]);
-const OBJECTS = new Set("wWs\"'`()[]{}");
+const OBJECTS = new Set("wWsp\"'`()[]{}");
 
 type Op = "d" | "c" | "y" | "gu" | "gU";
 const OPERATORS: readonly Op[] = ["d", "c", "y", "gu", "gU"];
@@ -1276,12 +1328,12 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
       if (i >= keys.length) return "pending";
       const object = keys[i++];
       if (!OBJECTS.has(object)) return "invalid";
-      // Word and sentence objects take counts: `2diw`, `d3as`.
+      // Word, sentence, and paragraph objects take counts.
       const total =
         n === undefined && m === undefined
           ? undefined
           : Math.min((n ?? 1) * (m ?? 1), MAX_COUNT);
-      if (total !== undefined && !"wWs".includes(object)) return "invalid";
+      if (total !== undefined && !"wWsp".includes(object)) return "invalid";
       return {
         kind: "op",
         op,
@@ -2036,6 +2088,7 @@ function objectRange(
   count = 1,
 ): Range | undefined {
   if (object === "s") return sentenceObject(buf, around, count);
+  if (object === "p") return paragraphObject(buf, around, count);
   const { cursor, lines } = buf;
   const line = lines[cursor.line];
   const range = (start: number, end: number): Range => ({
@@ -2117,9 +2170,6 @@ function escaped(line: string, p: number): boolean {
 // --- Helpers ---------------------------------------------------------------
 
 const text = (line: string, span: Span) => line.slice(span.start, span.end);
-/** Only spaces and tabs, as Vim's indent and trailing-blank checks see it. */
-const blank = (s: string) => /^[ \t]*$/.test(s);
-
 function clusterIndex(spans: Span[], col: number): number {
   const i = spans.findIndex((s) => col < s.end);
   return i === -1 ? spans.length : i;
