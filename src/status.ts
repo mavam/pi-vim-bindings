@@ -18,7 +18,7 @@ export type VimEditorMode =
 
 export type VimEditorStatus = Readonly<{
   mode: VimEditorMode;
-  /** Keys of an unfinished command, such as `2d`, `ci`, or `:q`; or "". */
+  /** Unfinished command or safely escaped search query; otherwise "". */
   pending: string;
   /** The text of the mode label: `pending` if any, else the mode name. */
   label: string;
@@ -42,7 +42,7 @@ const MODES: Record<Mode, VimEditorMode> = {
 export function statusOf(state: State): VimEditorStatus {
   return Object.freeze({
     mode: MODES[state.mode],
-    pending: state.keys.join(""),
+    pending: state.query ? label(state) : state.keys.join(""),
     label: label(state),
   });
 }

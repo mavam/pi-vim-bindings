@@ -44,11 +44,16 @@ export type Mode =
   | "vline"
   | "vblock";
 export type Find = { key: string; arg: string };
+type Search = { text: string; direction: 1 | -1 };
+type Query = Search & { count: number; unsupported?: boolean };
 /** `anchor` is the fixed end of a Visual selection; the cursor is the other. */
 export type State = {
   mode: Mode;
   keys: readonly string[];
   find?: Find;
+  /** Last accepted literal search, independent of character-find and dot. */
+  search?: Search;
+  query?: Query;
   anchor?: Pos;
   /** Visual block `$`: the block extends to the end of every line. */
   dollar?: boolean;
@@ -111,7 +116,125 @@ const LABELS: Record<Mode, string> = {
 
 /** The mode indicator: pending keys, or the mode name. */
 export function label(state: State): string {
+  if (state.query) {
+    const { text, direction, count } = state.query;
+    return `${count > 1 ? count : ""}${direction === 1 ? "/" : "?"}${searchLabel(text)}`;
+  }
   return state.keys.length ? state.keys.join("") : LABELS[state.mode];
+}
+
+/** Query text is data, never terminal control sequences (including bidi). */
+function searchLabel(text: string): string {
+  return JSON.stringify(text)
+    .slice(1, -1)
+    .replace(
+      /[\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
+      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+}
+
+/** Edit the pending query without touching the prompt or its Visual anchor. */
+export function searchInput(
+  state: State,
+  input: { text: string } | "backspace" | "confirm" | "cancel",
+  buf: Buffer,
+): Result {
+  const query = state.query;
+  if (!query) return { state, effects: [] };
+  const done = { ...state, keys: [], query: undefined };
+  if (input === "cancel") return { state: done, effects: [] };
+  if (input === "confirm") {
+    if (query.unsupported)
+      return {
+        state: done,
+        effects: [
+          {
+            kind: "message",
+            text: "Operator search isn't supported; use Visual search, then an operator.",
+          },
+        ],
+      };
+    // An empty query reuses the text, but / and ? still choose the direction.
+    const text = query.text || state.search?.text;
+    if (!text) return noSearch(done);
+    const search = { text, direction: query.direction };
+    return searchMotion({ ...done, search }, buf, search, query.count);
+  }
+  const text =
+    input === "backspace"
+      ? query.text.slice(0, clusters(query.text, new Set()).at(-1)?.start ?? 0)
+      : query.text + input.text;
+  return { state: { ...state, query: { ...query, text } }, effects: [] };
+}
+
+function noSearch(state: State): Result {
+  return { state, effects: [{ kind: "message", text: "No previous search." }] };
+}
+
+/** Literal matches must start/end at grapheme boundaries and avoid markers. */
+function searchMotion(
+  state: State,
+  buf: Buffer,
+  search: Search,
+  count: number,
+): Result {
+  const text = buf.lines.join("\n");
+  const boundaries = new Set<number>();
+  const positions = new Map<number, Pos>();
+  const opaque: Span[] = [];
+  let offset = 0;
+  let cursor = 0;
+  buf.lines.forEach((line, row) => {
+    if (row === buf.cursor.line) cursor = offset + buf.cursor.col;
+    for (const span of clusters(line, buf.pastes)) {
+      boundaries.add(offset + span.start);
+      boundaries.add(offset + span.end);
+      positions.set(offset + span.start, { line: row, col: span.start });
+    }
+    boundaries.add(offset);
+    boundaries.add(offset + line.length);
+    // Only an empty line has a Normal cursor at its newline.
+    if (!line.length) positions.set(offset, { line: row, col: 0 });
+    for (const span of markers(line, buf.pastes))
+      opaque.push({ start: offset + span.start, end: offset + span.end });
+    offset += line.length + 1;
+  });
+  const matches: number[] = [];
+  for (
+    let at = text.indexOf(search.text);
+    at !== -1;
+    at = text.indexOf(search.text, at + 1)
+  ) {
+    const end = at + search.text.length;
+    if (
+      positions.has(at) &&
+      boundaries.has(end) &&
+      !opaque.some((span) => span.start < end && at < span.end)
+    )
+      matches.push(at);
+  }
+  if (!matches.length)
+    return {
+      state,
+      effects: [{ kind: "message", text: "Search: no match in the prompt." }],
+    };
+  if (search.direction === -1) matches.reverse();
+  let first = matches.findIndex((at) =>
+    search.direction === 1 ? at > cursor : at < cursor,
+  );
+  const wrapped = first === -1 || first + count > matches.length;
+  if (first === -1) first = 0;
+  const at = matches[(first + count - 1) % matches.length];
+  const effects: Effect[] = [{ kind: "move", to: positions.get(at) as Pos }];
+  if (wrapped)
+    effects.push({
+      kind: "message",
+      text: "Search wrapped around the prompt.",
+    });
+  return {
+    state: { ...state, dollar: undefined, columns: undefined },
+    effects,
+  };
 }
 
 export const isVisual = (mode: Mode) =>
@@ -190,12 +313,19 @@ export function esc(
   state: State,
   buf: Buffer,
 ): Result & { passthrough: boolean } {
+  if (state.query)
+    return { ...searchInput(state, "cancel", buf), passthrough: false };
   if (state.keys.length)
     return { state: { ...state, keys: [] }, effects: [], passthrough: false };
   if (state.mode === "normal") return { state, effects: [], passthrough: true };
   if (isVisual(state.mode))
     return {
-      state: { mode: "normal", keys: [], find: state.find },
+      state: {
+        mode: "normal",
+        keys: [],
+        find: state.find,
+        search: state.search,
+      },
       effects: [],
       passthrough: false,
     };
@@ -210,8 +340,62 @@ export function esc(
   };
 }
 
-/** Handle one printable key in NORMAL mode. */
+/** Handle one printable key in NORMAL or Visual mode. */
 export function press(
+  state: State,
+  key: string,
+  buf: Buffer,
+  register: Register | undefined,
+  options: { unnamed?: boolean } = {},
+): Result {
+  if (state.query) return searchInput(state, { text: key }, buf);
+  const prefix = state.keys.join("");
+  const counted = /^(?:[1-9][0-9]*)?$/.test(prefix);
+  const bare = uncounted(state.keys)
+    .keys.join("")
+    .replace(/^(?:"[+*])+/, "");
+  const operator =
+    OPERATORS.some((op) => op === bare) || bare === ">" || bare === "<";
+  if ((counted || operator) && ["/", "?", "n", "N"].includes(key)) {
+    const count = Math.min(Number(prefix) || 1, MAX_COUNT);
+    const done = { ...state, keys: [] };
+    if (key === "/" || key === "?")
+      return {
+        state: {
+          ...done,
+          query: {
+            text: "",
+            direction: key === "/" ? 1 : -1,
+            count,
+            unsupported: operator,
+          },
+        },
+        effects: [],
+      };
+    if (operator)
+      return {
+        state: done,
+        effects: [
+          {
+            kind: "message",
+            text: "Operator search isn't supported; use Visual search, then an operator.",
+          },
+        ],
+      };
+    if (!state.search) return noSearch(done);
+    const search = {
+      ...state.search,
+      direction: (key === "N"
+        ? -state.search.direction
+        : state.search.direction) as 1 | -1,
+    };
+    return searchMotion(done, buf, search, count);
+  }
+  const result = pressCommand(state, key, buf, register, options);
+  return { ...result, state: { ...result.state, search: state.search } };
+}
+
+function pressCommand(
   state: State,
   key: string,
   buf: Buffer,
@@ -1395,7 +1579,12 @@ function parse(keys: readonly string[]): Command | "pending" | "invalid" {
 /** Run a pending Ex command (`:q`, `:q!`, `:qa`, `:qa!`) on Enter. */
 export function ex(state: State): Result {
   const command = state.keys.slice(1).join("");
-  const done: State = { mode: "normal", keys: [], find: state.find };
+  const done: State = {
+    mode: "normal",
+    keys: [],
+    find: state.find,
+    search: state.search,
+  };
   const quit = /^qa?(!?)$/.exec(command);
   if (quit)
     return { state: done, effects: [{ kind: "quit", force: quit[1] === "!" }] };

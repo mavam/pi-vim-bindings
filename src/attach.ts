@@ -35,6 +35,7 @@ import {
   reselect,
   retype,
   type State,
+  searchInput,
   selectedSpans,
   type Typed,
   typed,
@@ -120,6 +121,9 @@ export function attach(
   let undone = "";
   let seenText = "";
   let pasting = false;
+  // Buffer query pastes separately; even a cancelled query drains its paste.
+  let queryPaste: string | undefined;
+  let cancelledQuery = false;
   // A change for `.`: its keys without their count, and what the keys
   // alone don't say: the size of a Visual selection it acted on, what it did
   // in INSERT mode, or its keys in REPLACE mode.
@@ -327,7 +331,7 @@ export function attach(
     if (change.visual) {
       const { state: selected, cursor } = reselect(change.visual, port.read());
       port.setCursor(cursor);
-      state = { ...selected, find: state.find };
+      state = { ...selected, find: state.find, search: state.search };
     }
     for (const key of keys) perform(key);
     const started = open;
@@ -353,7 +357,12 @@ export function attach(
       const { back, forward, text } = change.typed;
       if (started?.block && !back && !forward && text && !text.includes("\n")) {
         run(replicate(started.block, text, port.read()));
-        state = { mode: "normal", keys: [], find: state.find };
+        state = {
+          mode: "normal",
+          keys: [],
+          find: state.find,
+          search: state.search,
+        };
         return;
       }
     }
@@ -368,9 +377,15 @@ export function attach(
   // drops a pending command; changed text also ends Visual mode.
   const reconcile = (buf: Buffer) => {
     if (typing() || fingerprint(buf) === seen) return;
+    if (state.query) cancelledQuery = true;
     if (buf.lines.join("\n") !== seenText && isVisual(state.mode))
-      state = { mode: "normal", keys: [], find: state.find };
-    else state = { ...state, keys: [] };
+      state = {
+        mode: "normal",
+        keys: [],
+        find: state.find,
+        search: state.search,
+      };
+    else state = { ...state, keys: [], query: undefined };
   };
 
   // `"+p`: read the clipboard, then put it only if nothing changed meanwhile,
@@ -383,7 +398,8 @@ export function attach(
   let changes = 0;
   let settled = "";
   let puts: Promise<void> = Promise.resolve();
-  const snapshot = () => `${state.mode}|${fingerprint(port.read())}`;
+  const snapshot = () =>
+    `${state.mode}|${state.query ? label(state) : ""}|${fingerprint(port.read())}`;
   const putClipboard = (before: boolean, count: number, quiet = false) => {
     const at = changes;
     puts = puts.then(async () => {
@@ -470,6 +486,54 @@ export function attach(
   };
 
   const handle = (data: string) => {
+    const buf = port.read();
+    reconcile(buf);
+    if (
+      queryPaste !== undefined ||
+      ((state.query || cancelledQuery) && data.includes(PASTE_START))
+    ) {
+      queryPaste = (queryPaste ?? "") + data;
+      const end = queryPaste.indexOf(PASTE_END);
+      if (end !== -1) {
+        if (state.query) {
+          const text = queryPaste
+            .slice(queryPaste.indexOf(PASTE_START) + PASTE_START.length, end)
+            .replace(/\r\n?/g, "\n");
+          state = searchInput(state, { text }, buf).state;
+        }
+        queryPaste = undefined;
+      }
+      // Draining paste chunks doesn't acknowledge an external cancellation;
+      // the Enter that would have confirmed this query must still be eaten.
+      return settle();
+    }
+    // Even after a render cancelled the query, its next Enter/Esc/text must
+    // not submit, interrupt, or turn into an unrelated Normal command.
+    if (cancelledQuery) {
+      cancelledQuery = false;
+      shared.notify("The prompt changed; search cancelled.", "info");
+      return settle();
+    }
+    if (state.query) {
+      let result: ReturnType<typeof searchInput> | undefined;
+      if (isEscape(data)) {
+        port.cancelJump();
+        result = searchInput(state, "cancel", buf);
+      } else if (matchesKey(data, "enter"))
+        result = searchInput(state, "confirm", buf);
+      else if (matchesKey(data, "backspace"))
+        result = searchInput(state, "backspace", buf);
+      else {
+        const text = printable(data);
+        if (text !== undefined) result = searchInput(state, { text }, buf);
+        // Modified shortcuts and navigation are deliberately consumed.
+      }
+      if (result) {
+        state = result.state;
+        run(result.effects);
+      }
+      return settle();
+    }
     if (pasting || data.includes(PASTE_START)) {
       pasting =
         data.lastIndexOf(PASTE_START) > data.lastIndexOf(PASTE_END) ||
@@ -482,8 +546,6 @@ export function attach(
       if (state.mode === "insert" && open) open.at = port.read();
       return;
     }
-    const buf = port.read();
-    reconcile(buf);
     if (isEscape(data)) {
       // Pi's character jump would otherwise catch the next key we pass on.
       port.cancelJump();
@@ -560,7 +622,7 @@ export function attach(
 
   // Text that changed from outside ends Visual mode before anyone shows it.
   const current = () => {
-    if (isVisual(state.mode)) reconcile(port.read());
+    if (isVisual(state.mode) || state.query) reconcile(port.read());
     return state;
   };
 

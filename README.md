@@ -46,7 +46,8 @@ Counts work on motions and most edits, as in `3w`, `d3w`, or `2dd`. Keys Vim
 doesn't use, such as Enter, Tab, arrows, and Ctrl or Alt shortcuts, keep
 doing what they do in Pi. The exceptions in NORMAL mode are `Ctrl-V`, which
 starts Visual block mode instead of pasting an image, `Ctrl-R`, which redoes,
-and `Ctrl-]`.
+and `Ctrl-]`. While a search query is open, its keys stay with search instead
+of Pi (see **Literal prompt search**).
 
 **Modes and Esc**
 
@@ -80,6 +81,29 @@ Use `2}` to move forward two paragraph boundaries or `d}` to delete up to the
 next boundary. Only empty lines separate paragraphs for these motions;
 space/tab-only lines do not. Consecutive empty lines form one separator run.
 These motions do not recognize Markdown, nroff macros, or section markers.
+
+**Literal prompt search**
+
+In NORMAL or Visual mode, type `/text` and press Enter to search forward, or
+`?text` to search backward. Search is **literal and case-sensitive**, not Vim
+or JavaScript regex: `.*`, brackets, and backslashes match themselves. It
+searches only the prompt, never the transcript or pasted-block contents or
+markers. Matches respect grapheme boundaries.
+
+Use `n` to repeat in the accepted direction and `N` in reverse; `N` doesn't
+change the direction of later `n`. Counts work (`2/text`, `3n`). Search wraps
+with a notice. Enter on an empty query reuses the last accepted text in the
+chosen `/` or `?` direction. No match leaves the cursor in place with a notice.
+
+The border shows the query. Backspace deletes its last grapheme; Esc or
+`Ctrl-[` cancels without moving. Enter confirms, **never submits**. Paste adds
+to the query, including line breaks; other shortcuts and navigation keys are
+ignored until you confirm or cancel. External cursor or text changes cancel
+the query. Search memory is private to each editor and resets after submit.
+
+Operator search (`d/text`, `cn`, and similar) isn't supported: it cancels
+without editing. Instead, use `v/text`, Enter, then `d`, `c`, or `y` to act on
+the inclusive selection. There is no regex, query history UI, or live preview.
 
 **Operators and text objects**
 
@@ -190,7 +214,7 @@ release may not yet include its latest features.
 | `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ limited |
 | Redo | `Ctrl-R` | `Ctrl-R` | `Ctrl-R` | `U` | `Ctrl-R` | `Ctrl-R` |
 | Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| Search `/` `?` `n` | Literal, case-sensitive; also `N` | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | System clipboard | both ways | both ways | yanks | ❌ | ❌ | both ways |
 | Ex commands | `:q` | Pi commands | Pi commands | ❌ | ❌ | Pi commands, editing |

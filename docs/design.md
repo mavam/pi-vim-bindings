@@ -20,7 +20,7 @@ License: MIT
 
 **Non-goals (v0.1)**
 
-Macros, search, registers beyond the unnamed one and the clipboard,
+Macros, regex and operator search, search history UI, registers beyond the unnamed one and the clipboard,
 Ex commands beyond quitting, automatic formatting, filetype-aware formatting,
 remapping, a
 `/vim` command, and decorating overlay editors that other extensions create.
@@ -165,6 +165,15 @@ On each `handleInput(data)`:
 **0. Detect external changes.** If text or cursor differ from the snapshot
 taken after our last key (mouse click, host action, another extension),
 cancel the pending command.
+
+**Pending search.** `State.query` owns input before ordinary routing: Enter
+confirms, Backspace removes a grapheme, Esc / `Ctrl-[` cancels, printable text
+and bracketed paste append, and other keys are consumed. Split query pastes
+are buffered separately, including draining a paste after external mutation
+cancels its query. Reconciliation runs before this routing and during search
+render/status reads; a cancelled query consumes its next input, preventing a
+stale Enter from submitting. Query text is escaped before the border or status
+capability sees it. No host API or additional editor is needed.
 
 **1. Decode.** Use `pi-tui`'s exported `matchesKey` and
 `decodeKittyPrintable`, plus a few lines decoding xterm `modifyOtherKeys`
@@ -435,6 +444,16 @@ are installed.
   collapses everything into one undo step. `{n}.` becomes the count if the
   command takes one (`countable()`) and sticks for the next `.`; Visual
   changes ignore it.
+- **Literal search:** the engine keeps the accepted text/direction separately
+  from `find` and the pending draft. It scans the joined prompt with literal
+  string matching, admitting only grapheme-boundary matches at valid cursor
+  positions and rejecting any overlap with registered paste-marker spans.
+  Counts choose among matching starts modulo their number; wrap and failure
+  produce message effects. Confirmation and `n`/`N` emit only moves/messages,
+  never register or change effects. Mode changes preserve search memory;
+  submit/editor replacement clears it. Operator search is intentionally not
+  part of the synchronous operator parser or dot replay: an operator followed
+  by `/` or `?` captures a discard-only query, while `n`/`N` cancel it.
 - **Manual reflow:** `gq` and `gw` reuse operator ranges, expanded to whole
   touched lines. The engine checks every such line for paste markers before
   formatting. `reflow.ts` wraps space/tab-delimited words, retains blank
