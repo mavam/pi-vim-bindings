@@ -1,9 +1,9 @@
 # ⌨️ pi-vim-editor
 
-Minimal Vim-style modal editing for [Pi](https://pi.dev)'s prompt editor.
-Instead of replacing the editor, it adds INSERT and NORMAL modes to whatever
-editor is installed, so Pi's inline working indicator, autocomplete, paste
-handling, and other editor extensions keep working.
+Edit prompts by sentence and paragraph, reshape blocks, and reflow prose—
+without replacing your editor. pi-vim-editor adds Vim-style INSERT and NORMAL
+modes by decorating the installed editor. If another extension customizes the
+editor, load pi-vim-editor after it.
 
 <table>
   <tr>
@@ -174,21 +174,21 @@ The full spec, including where it differs from Vim, is in
 
 ## 🆚 Comparison
 
-How pi-vim-editor compares with the most downloaded Vim extensions for Pi,
-based on reading their source as of October 2026:
+How pi-vim-editor compares with other Vim extensions for Pi, based on their
+documented features. This table describes current `main`; the published npm
+release may not yet include its latest features.
 
 | | **pi‑vim‑editor** | [pi‑vim](https://www.npmjs.com/package/pi-vim) | [pi‑command‑deck](https://www.npmjs.com/package/@ian-pascoe/pi-command-deck) | [pi‑vim‑keys](https://www.npmjs.com/package/@0xkahi/pi-vim-keys) | [pixit](https://www.npmjs.com/package/@sentomk/pixit) | [pi‑vimmode](https://www.npmjs.com/package/pi-vimmode) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Downloads/month | new | 2,766 | 1,017 | 916 | 462 | 337 |
-| Keeps Pi's editor | ✅ | ❌ replaces it | ❌ replaces it | ❌ replaces it | ❌ replaces it | ❌ replaces it |
-| Works with other editor extensions | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Inline working indicator | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V` `Ctrl-V` |
+| Editor integration | Wraps the installed editor | Replaces it | Replaces it | Replaces it | Replaces it | Replaces it |
+| Visual modes | `v` `V` `Ctrl-V` | `v` `V` | `v` `V` | `v` `V` | ❌ | `v` `V`; block configurable |
 | Operators | `d` `c` `y` `gu` `gU` | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` | limited | `d` `c` `y` | `d` `c` `y` `gu` `gU` `g~` |
-| Text objects | word, sentence, paragraph, quotes, brackets | word, quotes, brackets | + paragraph | ❌ | word | + more |
+| Text objects | word, sentence, paragraph, quotes, brackets | word, quotes, brackets | word, paragraph | ❌ | word | word, quotes, brackets, paragraphs, Markdown, tags, error blocks |
+| Paragraph motions | Navigation and operators | Navigation only | Navigation and operators | not documented | not documented | Navigation and operators |
+| Prose reflow | `gq` / `gw` operators | not documented | not documented | not documented | not documented | `:reflow`; `gq` line action |
 | Counts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ partial |
-| `Ctrl-R` redo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `.` repeat | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ limited |
+| Redo | `Ctrl-R` | `Ctrl-R` | `Ctrl-R` | `U` | `Ctrl-R` | `Ctrl-R` |
 | Replace mode `R` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | Search `/` `?` `n` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Macros, named registers | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
