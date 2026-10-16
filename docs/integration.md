@@ -26,11 +26,13 @@ object on every call:
 | Field | Meaning |
 | --- | --- |
 | `mode` | `insert`, `normal`, `visual`, `visual-line`, `visual-block`, or `replace` |
-| `pending` | The keys of an unfinished command, such as `2d`, `ci`, `"+`, or `:q`; otherwise `""` |
+| `pending` | An unfinished command or search query, such as `2d`, `ci`, `"+`, `:q`, or `/text`; otherwise `""` |
 | `label` | The text of pi-vim-editor's own label: `pending` if it isn't empty, otherwise the mode name, such as `NORMAL` or `VISUAL LINE` |
 
 The label is plain text without styling. pi-vim-editor's own border mutes
-`INSERT` and uses the accent color for everything else.
+`INSERT` and uses the accent color for everything else. Search queries escape
+control characters, line breaks, and backslashes for safe single-line display;
+`pending` isn't a raw query API.
 
 The package also exports the TypeScript types `VimEditorCapability`,
 `VimEditorStatus`, and `VimEditorMode`.

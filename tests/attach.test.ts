@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { attach, type Shared } from "../src/attach.ts";
+import { portFor } from "../src/port.ts";
 import type { VimEditorCapability } from "../src/status.ts";
 import { keybindings as createKeybindings, theme, tui } from "./fixtures.ts";
 
@@ -703,6 +704,165 @@ test("unchanged and refused formatting never writes, copies, or consumes undo", 
   expect(shared.register).toBe(register);
   expect(copies).toEqual([]);
   expect(notes.at(-1)).toBe("Vim edits can't touch pasted blocks.");
+});
+
+test("search owns Enter, Esc, Ctrl-[, Backspace, and modified shortcuts", () => {
+  const { editor, type } = setup();
+  editor.setText("a foo foo");
+  let submissions = 0;
+  let interrupts = 0;
+  let changes = 0;
+  editor.onSubmit = () => submissions++;
+  editor.onEscape = () => interrupts++;
+  type("\x1b", "0", "/foo");
+  editor.onChange = () => changes++;
+  expect(status(editor)?.pending).toBe("/foo");
+  expect(editor.render(40).at(-1)).toContain("</foo>");
+  type("é", "\x7f");
+  expect(status(editor)?.pending).toBe("/foo");
+  // All these would normally navigate, edit, or invoke Pi actions.
+  type(
+    "\x03",
+    "\x07",
+    "\x15",
+    "\x16",
+    "\x12",
+    "\x1b[D",
+    "\t",
+    "\x1bx",
+    "\x1b[13;2u",
+  );
+  expect(status(editor)?.pending).toBe("/foo");
+  type("\r");
+  expect(editor.getCursor()).toEqual({ line: 0, col: 2 });
+  for (const cancel of ["\x1b", "\x1b[91;5u"]) {
+    type("/foo", cancel);
+    expect(editor.getCursor()).toEqual({ line: 0, col: 2 });
+    expect(status(editor)?.pending).toBe("");
+  }
+  expect(editor.getText()).toBe("a foo foo");
+  expect([submissions, interrupts, changes]).toEqual([0, 0, 0]);
+  type("\r");
+  expect(submissions).toBe(1);
+});
+
+test("query paste searches across lines and escapes terminal controls in status", () => {
+  const { editor, type } = setup();
+  editor.setText("a\nfoo\nbar");
+  type("\x1b", "g", "g", "/", "\x1b[200~foo\r\nbar\x1b[201~");
+  expect(status(editor)?.label).toBe("/foo\\nbar");
+  expect(editor.getText()).toBe("a\nfoo\nbar");
+  type("\r");
+  expect(editor.getCursor()).toEqual({ line: 1, col: 0 });
+  type("/", "\x1b[200~\x1b]0;unsafe\x07\u009b\u202e\x1b[201~");
+  const pending = status(editor)?.pending ?? "";
+  expect(pending).toContain("\\u001b");
+  expect(pending).toContain("\\u009b");
+  expect(pending).toContain("\\u202e");
+  expect(editor.render(100).join("\n")).not.toContain("\x1b]0;unsafe");
+  type("\x1b", "/", "\x1b[200~fo", "o", "\x1b[201~", "\r");
+  expect(editor.getCursor()).toEqual({ line: 1, col: 0 });
+  expect(editor.getText()).toBe("a\nfoo\nbar");
+});
+
+test("search skips both paste markers and their hidden contents", () => {
+  const { editor, type, notes } = setup();
+  type(
+    "a ",
+    `\x1b[200~${"secret\n".repeat(12)}\x1b[201~`,
+    " visible",
+    "\x1b",
+    "0",
+  );
+  const text = editor.getText();
+  for (const query of ["paste", "secret", "[paste #1 +13 lines]"]) {
+    type("/", query, "\r");
+    expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+    expect(notes.at(-1)).toBe("Search: no match in the prompt.");
+  }
+  expect(editor.getText()).toBe(text);
+  type("/visible", "\r");
+  expect(editor.getCursor().col).toBe(text.indexOf("visible"));
+});
+
+test.each([false, true])(
+  "external changes cancel queries safely, including after render: %s",
+  (renderFirst) => {
+    const { editor, type } = setup();
+    editor.setText("a foo");
+    let submits = 0;
+    let interrupts = 0;
+    editor.onSubmit = () => submits++;
+    editor.onEscape = () => interrupts++;
+    type("\x1b", "0", "v", "/foo");
+    editor.setText("new prompt");
+    if (renderFirst) editor.render(40);
+    type("\r");
+    expect(editor.getText()).toBe("new prompt");
+    expect(status(editor)?.mode).toBe("normal");
+    type("/foo");
+    // Real host cursor mutation, without passing through our input wrapper.
+    editor.insertTextAtCursor("!");
+    if (renderFirst) status(editor);
+    type("\x1b");
+    expect([submits, interrupts]).toEqual([0, 0]);
+    expect(status(editor)?.pending).toBe("");
+  },
+);
+
+test("external cursor changes preserve Visual anchors and cancelled split pastes never leak", () => {
+  const { editor, type } = setup();
+  editor.setText("a foo foo");
+  type("\x1b", "0", "v", "/foo");
+  const port = portFor(editor);
+  port?.setCursor({ line: 0, col: 2 });
+  type("\r");
+  expect(status(editor)?.mode).toBe("visual");
+  type("y");
+  expect(editor.getText()).toBe("a foo foo");
+  type("/", "\x1b[200~fo");
+  editor.setText("changed");
+  let submits = 0;
+  editor.onSubmit = () => submits++;
+  type("o", "\x1b[201~", "\r");
+  expect(submits).toBe(0);
+  expect(editor.getText()).toBe("changed");
+  expect(status(editor)?.pending).toBe("");
+});
+
+test("Visual search extends or cancels the selection without losing its anchor", () => {
+  const { editor, type, copies } = setup();
+  editor.setText("a foo foo");
+  type("\x1b", "0", "v", "/missing", "\x1b", "/foo", "\r", "n", "y");
+  expect(copies).toEqual(["a foo f"]);
+  expect(editor.getText()).toBe("a foo foo");
+});
+
+test("search preserves undo, dot, registers, redo, and direction across other commands", () => {
+  const { editor, type, shared } = setup();
+  editor.setText("a foo foo");
+  type("\x1b", "0", "x");
+  const register = shared.register;
+  type("/foo", "\r", ":x", "\r", "n");
+  expect(editor.getCursor()).toEqual({ line: 0, col: 5 });
+  expect(shared.register).toBe(register);
+  type(".");
+  expect(editor.getText()).toBe(" foo oo");
+  type("u", "u");
+  expect(editor.getText()).toBe("a foo foo");
+  type("/foo", "\r", "\x12");
+  expect(editor.getText()).toBe(" foo foo");
+});
+
+test("search history resets after submit and is private to each editor", () => {
+  const { editor, type, notes } = setup();
+  editor.setText("a foo");
+  editor.onSubmit = () => {};
+  type("\x1b", "0", "/foo", "\r", "\r", "next", "\x1b", "n");
+  expect(notes.at(-1)).toBe("No previous search.");
+  const other = setup();
+  other.type("a", "\x1b", "/", "\r");
+  expect(other.notes.at(-1)).toBe("No previous search.");
 });
 
 test("keeps one status per editor, back in INSERT after a submit", () => {

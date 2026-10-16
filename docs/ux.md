@@ -40,11 +40,13 @@ Esc Esc from INSERT aborts a running agent.
 Exceptions in NORMAL: `Ctrl-]` (Pi's jump-to-char) does nothing, `Ctrl-V`
 starts Visual block mode instead of Pi's image paste (which still works in
 INSERT mode), `Ctrl-R` redoes, and a Pi action bound to a bare printable key is
-shadowed by Vim.
+shadowed by Vim. A pending search owns its input instead; see **Literal prompt
+search** below.
 
 ## 4. NORMAL mode (v0.1)
 
-Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $ ( )`, on
+Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $ ( )`,
+on `/`, `?`, `n`, `N`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
 deletes six words), on word, sentence, and paragraph objects (`2diw`, `d3aW`,
 `d2as`, `d2ap`), and on `x`, `X`, `s`,
@@ -118,6 +120,51 @@ From mid-line it keeps the prefix. Visual selections keep their shape:
 `v}` is characterwise and includes the destination, while `V}` is linewise.
 As with other motions here, an empty yank range (for example, `y{` at the
 prompt’s start) leaves the previous register unchanged, unlike Vim.
+
+### Literal prompt search
+
+`/text` and Enter search forward; `?text` and Enter search backward. Search
+is literal and case-sensitive, **not Vim or JavaScript regex**. For example,
+`/a.*` finds the characters `a.*`, not any text beginning with `a`. Backslashes
+have no escape syntax: typing `\n` searches for a backslash and `n`; paste an
+actual line break to search across prompt lines.
+
+- Search starts strictly after or before the cursor and wraps around the
+  prompt, with a notice. A sole match can return to the same position after
+  wrapping. Overlapping matches count separately.
+- `n` repeats in the last accepted direction; `N` reverses it for that move
+  only. Counts choose the nth match (`2/text`, `3?text`, `4n`, `2N`) and can wrap
+  more than once. Empty queries reuse the last accepted text, with `/` or `?`
+  choosing the direction. An empty first query or repeat without a previous
+  search only reports that there is no previous search.
+- Enter accepts a query even if it has no match. A miss leaves the cursor
+  unchanged and reports it. Esc discards the draft, keeping the previous
+  accepted search. Search memory is per editor and resets after submit or
+  editor replacement, not on ordinary edits or mode changes.
+- Matches must start and end at grapheme boundaries. Search never matches
+  inside or across an opaque paste marker, nor reads its hidden contents.
+  It searches the prompt buffer, not the transcript. A match must start at a
+  valid NORMAL cursor position (a newline only on an empty line).
+- All Visual modes keep their fixed anchor and shape. Confirm moves the
+  active endpoint; cancel preserves both endpoints. Search alone never
+  changes text, registers, undo/redo, or the last `.` change.
+
+The query uses the border label, without a dialog, live preview, or match
+highlighting. Printable input appends to it; Backspace deletes one grapheme.
+Enter confirms without submitting; Esc or `Ctrl-[` cancels without interrupting
+Pi. Bracketed paste appends literal text, converting CRLF and CR to LF, and
+never inserts into the prompt. Control characters appear escaped in the label.
+Other keys, including arrows, Tab, and Ctrl/Alt shortcuts, are consumed without
+action while the query is open. A narrow border may omit the label as usual.
+
+External cursor or text changes cancel the query; the next input is consumed
+so a pending Enter cannot accidentally submit. External text changes also end
+Visual mode. Operator search (`d/text`, `c?text`, `yn`, `gqN`, and similar) isn't
+supported. `/` and `?` after an operator collect and discard the query through
+Enter or Esc, without editing; `n` and `N` cancel the operator with a notice.
+Use Visual search followed by an operator instead; its range includes the
+matched character. Regex, word-under-cursor `*`/`#`, search offsets, query
+history UI, and operator search remain out of scope.
 
 ### Operators
 
@@ -423,7 +470,7 @@ Candidates for later, roughly by demand:
 
 Not planned: `jj`/`jk` escape (pi-vim #45).
 
-Out of scope: search, named registers, macros,
+Out of scope: regex and operator search, search history UI, named registers, macros,
 marks, `{n}R`, `gR`, Ex commands
 beyond quitting, remapping, history on `j`/`k`, `>`/`<` with
 motions, a configurable indent width.
