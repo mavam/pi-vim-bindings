@@ -1,6 +1,31 @@
-/** Prose paragraph objects, based on public Vim help and black-box checks. */
-import type { Buffer, Range } from "./engine.js";
+/** Prose paragraphs, based on public Vim help and black-box checks. */
+import type { Buffer, Pos, Range } from "./engine.js";
 import { blank } from "./text.js";
+
+/**
+ * Exclusive paragraph motion: only literal empty lines are boundaries.
+ * Skip the current empty run, then stop at the next one or the buffer edge.
+ * EOF uses an exclusive end column; the caller clamps navigation by grapheme.
+ * A count past either edge fails without moving partway.
+ */
+export function paragraphMotion(
+  { lines, cursor }: Buffer,
+  forward: boolean,
+  count: number,
+): Pos | undefined {
+  const step = forward ? 1 : -1;
+  const edge = forward ? lines.length - 1 : 0;
+  let line = cursor.line;
+  for (let n = 0; n < count; n++) {
+    if (line === edge && n > 0) return undefined;
+    while (line !== edge && lines[line] === "") line += step;
+    while (line !== edge) {
+      line += step;
+      if (lines[line] === "") break;
+    }
+  }
+  return { line, col: forward && line === edge ? lines[line].length : 0 };
+}
 
 type Run = { first: number; last: number; blank: boolean };
 

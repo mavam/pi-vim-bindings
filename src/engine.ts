@@ -3,7 +3,7 @@
  * No Pi imports. Columns are UTF-16 offsets, as in Pi's editor.
  */
 
-import { paragraphObject } from "./paragraph.js";
+import { paragraphMotion, paragraphObject } from "./paragraph.js";
 import { sentence, sentenceObject } from "./sentence.js";
 import {
   blank,
@@ -1232,8 +1232,8 @@ export function apply(buf: Buffer, effects: readonly Effect[]): Buffer {
 // --- Parsing ---------------------------------------------------------------
 
 const MAX_COUNT = 9999;
-const MOTIONS = new Set("hjklwbeWBE0^$G;,%()");
-const COUNTED = new Set("hjklwbeWBEG;,fFtTg$()");
+const MOTIONS = new Set("hjklwbeWBE0^$G;,%(){}");
+const COUNTED = new Set("hjklwbeWBEG;,fFtTg$(){}");
 const FINDS = new Set("fFtT");
 const REVERSE: Record<string, string> = { f: "F", F: "f", t: "T", T: "t" };
 const EDITS = new Set([..."iaIAoOxXsSDCYJpPu.~R", CTRL_R]);
@@ -1982,6 +1982,11 @@ function resolve(
     case "(":
     case ")": {
       const to = sentence(lines, cursor, motion.key === ")", n, buf.pastes);
+      return to && { to, kind: "exclusive" };
+    }
+    case "{":
+    case "}": {
+      const to = paragraphMotion(buf, motion.key === "}", n);
       return to && { to, kind: "exclusive" };
     }
     case "%": {
