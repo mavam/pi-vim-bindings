@@ -1,6 +1,8 @@
 ---
 title: Literal prompt search
 type: feature
+prs:
+  - 9
 authors:
   - mavam
 created: 2026-10-16T13:28:07.300983Z
