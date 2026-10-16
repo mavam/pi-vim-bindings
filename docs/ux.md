@@ -86,6 +86,7 @@ never restores over one.
 | `gg` `G` `{n}G` | First line / last line / line n |
 | `%` | From the first bracket at or after the cursor on the line, to its partner, across lines |
 | `(` `)` | Back / forward to the start of a sentence, across lines; see below |
+| `{` `}` | Back / forward to an empty-line paragraph boundary; see below |
 | `f{c}` `F{c}` `t{c}` `T{c}` | To / till character on the line |
 | `;` `,` | Repeat the last `f F t T` / in reverse |
 
@@ -99,6 +100,24 @@ previous one. Past the last sentence, `)` goes to the last character, and
 `d)` deletes through it. A count that runs past the start or end of the
 prompt does nothing, as in Vim. `(` and `)` are exclusive, so `d)` from a
 sentence start deletes the sentence and the blanks after it.
+
+Paragraph motions `{` and `}` stop on empty lines, not lines containing
+spaces or tabs. A run of empty lines is one separator: `}` from text lands
+on its first empty line, and `{` lands on its last. From inside a separator
+run, either motion skips that run. At the prompt's edges, `{` goes to the
+first character and `}` to the last; `d}` includes that last character.
+Counts work in NORMAL and Visual modes (`2}`, `v2{`); operator and motion
+counts multiply (`2d3}` equals `d6}`). An overshooting count does nothing,
+rather than moving or editing partway.
+
+These motions are exclusive. When the endpoint is column zero on another
+line, the operator stops at the previous line's end; if the range starts
+in indentation, it becomes linewise. For example, `d}` at a paragraph's
+start deletes its lines but leaves the following empty separator line.
+From mid-line it keeps the prefix. Visual selections keep their shape:
+`v}` is characterwise and includes the destination, while `V}` is linewise.
+As with other motions here, an empty yank range (for example, `y{` at the
+prompt’s start) leaves the previous register unchanged, unlike Vim.
 
 ### Operators
 
@@ -160,10 +179,10 @@ Paragraph objects select whole lines of prose, including indentation:
   its indentation. The deleted or yanked text is linewise; `p` puts it as whole
   lines. `cip` also works in an empty prompt; `ap` there does nothing.
 
-These object-specific whitespace rules differ from Vim’s paragraph motions and
-from the sentence boundaries above. Paragraph navigation (`{` / `}`) is not
-supported. Paragraph objects do not parse Markdown headings, lists, or fences,
-nroff macros, or form feeds. Pasted blocks stay opaque, and operators touching
+These object-specific whitespace rules differ from `{` / `}` and the sentence
+boundaries above. Paragraph motions and objects do not parse Markdown headings,
+lists, or fences, nroff macros, or section markers (including form feeds and
+braces at the start of a line). Pasted blocks stay opaque, and operators touching
 one are refused.
 
 ### Single-key edits
@@ -365,7 +384,7 @@ Candidates for later, roughly by demand:
 
 Not planned: `jj`/`jk` escape (pi-vim #45).
 
-Out of scope: search, paragraph motions (`{` / `}`), named registers, macros,
+Out of scope: search, named registers, macros,
 marks, `{n}R`, `gR`, Ex commands
 beyond quitting, remapping, history on `j`/`k`, `>`/`<` with
 motions, a configurable indent width.

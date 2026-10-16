@@ -404,6 +404,78 @@ test.each([
   expect(run(before, keys)).toBe(after);
 });
 
+// Paragraph motions use empty lines, not the objects' space/tab separators.
+// Representative boundaries and operator shapes checked with vim -Nu NONE.
+test.each([
+  ["|one\ntwo\n\nthree", "}", "one\ntwo\n|\nthree"],
+  ["one\n\n\n|two", "{", "one\n\n|\ntwo"],
+  ["one\n|\n\ntwo\n\nthree", "}", "one\n\n\ntwo\n|\nthree"],
+  ["one\n\n|\ntwo", "{", "|one\n\n\ntwo"],
+  ["|one\n \n\t\ntwo", "}", "one\n \n\t\ntw|o"],
+  ["one\n \n\t\n|two", "{", "|one\n \n\t\ntwo"],
+  ["|one\n\n\ntwo\n\nthree", "2}", "one\n\n\ntwo\n|\nthree"],
+  ["one\n\n\ntwo\n\n|three", "2{", "one\n\n|\ntwo\n\nthree"],
+  ["|one\n\ntwo", "3}", "|one\n\ntwo"],
+  ["one\n\n|two", "3{", "one\n\n|two"],
+  ["|one", "}", "on|e"],
+  ["on|e", "}", "on|e"],
+  ["on|e", "{", "|one"],
+  ["on|e", "2{", "on|e"],
+  ["|one", "9999}", "|one"],
+  ["|one", "{", "|one"],
+  ["|one", "gU{", "|One"],
+  ["|one", "c{X<esc>", "|Xone"],
+  ["|", "c{X<esc>", "|X"],
+  ["|", "c}X<esc>", "|X"],
+  ["|", "}", "|"],
+  ["|\n\n", "}", "\n\n|"],
+  ["\n\n|", "{", "|\n\n"],
+  ["|one\n\n", "2}", "one\n\n|"],
+  ["|one\n\n", "3}", "|one\n\n"],
+  ["|one\n", "2}", "|one\n"],
+  ["|one\ntwo\n\nthree", "d}", "|\nthree"],
+  ["o|ne\ntwo\n\nthree", "d}", "|o\n\nthree"],
+  ["  |one\ntwo\n\nthree", "d}", "|\nthree"],
+  ["one\n\n|two", "d{", "one\n|two"],
+  ["one\n\ntw|o", "d{", "one\n|o"],
+  ["|one\ntwo", "d}", "|"],
+  ["on|e", "d}", "o|n"],
+  ["|one", "d2}", "|one"],
+  ["one\n\n|two", "d3{", "one\n\n|two"],
+  ["|a\n\nb\n\nc\n\nd\n\ne", "2d2}", "|\ne"],
+  ["|one\ntwo\n\nthree", "c}X<esc>", "|X\n\nthree"],
+  ["o|ne\ntwo", "c}X<esc>", "o|X"],
+  ["|one\ntwo\n\nthree", "gU}", "|ONE\nTWO\n\nthree"],
+  ["ONE\n\nTW|O", "gu{", "ONE\n|\ntwO"],
+  ["|one\n\ntwo\n\nthree", "gU2}", "|ONE\n\nTWO\n\nthree"],
+  ["|one\n\ntwo", "v}", "one\n|\ntwo -- visual"],
+  ["|one\n\ntwo", "V}", "one\n|\ntwo -- vline"],
+  ["|one\n\ntwo", "v}d", "|two"],
+  ["|one\n\ntwo", "V}d", "|two"],
+  ["one\n\n|two", "v{d", "one\n|wo"],
+  ["|one\n\ntwo", "v3}", "|one\n\ntwo -- visual"],
+  ["|one\n\ntwo", "<C-v>}", "one\n|\ntwo -- vblock"],
+  ["|中文\né👨‍👩‍👧‍👦", "}", "中文\né|👨‍👩‍👧‍👦"],
+  ["中文\né|👨‍👩‍👧‍👦", "d}", "中文\n|é"],
+  ["|one\né", "v}d", "|"],
+  [`|one\n${paste}`, "}", `one\n|${paste}`],
+  // Deliberate subset: no nroff, section, or Markdown boundaries.
+  [
+    "|one\n.PP\n.SH\n\f\n{\n}\n# Heading\n- item\n```\nend",
+    "}",
+    "one\n.PP\n.SH\n\f\n{\n}\n# Heading\n- item\n```\nen|d",
+  ],
+])("paragraph motion: %j + %j → %j", (before, keys, after) => {
+  expect(run(before, keys)).toBe(after);
+});
+
+test.each(["d}", "c}", "y}", "gu}", "gU}", "v}d", "V}y"])(
+  "refuses paragraph motions touching paste markers: %s",
+  (keys) => {
+    expect(run(`|one\n${paste}\n\nafter`, keys)).toBe("refused");
+  },
+);
+
 // Paragraph objects are whole-line runs; their blanks include spaces and tabs.
 test.each([
   ["before\n\nal|pha\nbeta\n\nafter", "dip", "before\n\n|\nafter"],

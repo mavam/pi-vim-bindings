@@ -203,6 +203,90 @@ test.each([
   },
 );
 
+test.each([
+  ["one\ntwo\n\nthree", "y}", "one\ntwo", true],
+  ["one\ntwo\n\nthree", "ly}", "ne\ntwo", false],
+  ["one\ntwo", "y}", "one\ntwo", false],
+  ["one\n\ntwo", "Gy{", "", true],
+  ["one\n\ntwo", "v}y", "one\n\n", false],
+  ["one\n\ntwo", "V}y", "one\n", true],
+  ["one\n\ntwo", "Gv{y", "\nt", false],
+] as const)(
+  "copies paragraph motions with their selection shape: %j + %j",
+  (before, keys, text, linewise) => {
+    const { editor, type, copies, shared } = setup();
+    editor.setText(before);
+    type("\x1b", "g", "g", "0", ...keys);
+    expect(editor.getText()).toBe(before);
+    expect(copies).toEqual([text]);
+    expect(shared.register).toEqual({ text, linewise });
+  },
+);
+
+test("repeats a paragraph motion change and undoes each whole change", () => {
+  const { editor, type } = setup();
+  const before = "First\ninstruction\n\nSecond\ninstruction\n\nLast";
+  editor.setText(before);
+  type("\x1b", "g", "g", "c", "}", ..."New", "\x1b");
+  expect(editor.getText()).toBe("New\n\nSecond\ninstruction\n\nLast");
+  type("2", "j", "0", ".");
+  expect(editor.getText()).toBe("New\n\nNew\n\nLast");
+  type("u");
+  expect(editor.getText()).toBe("New\n\nSecond\ninstruction\n\nLast");
+  type("u");
+  expect(editor.getText()).toBe(before);
+});
+
+test("a repeat count replaces a paragraph motion count", () => {
+  const { editor, type } = setup();
+  const before = "A\n\nB\n\nC\n\nD\n\nE";
+  editor.setText(before);
+  type("\x1b", "g", "g", "d", "}", "j", "2", ".");
+  expect(editor.getText()).toBe("\n\nD\n\nE");
+  type("u");
+  expect(editor.getText()).toBe("\nB\n\nC\n\nD\n\nE");
+  type("u");
+  expect(editor.getText()).toBe(before);
+});
+
+test.each(["y3}", "d3}", "c3}", "gu3}", "gU3}"])(
+  "paragraph motion overruns preserve text, register, and mode: %s",
+  (keys) => {
+    const { editor, type, shared } = setup();
+    const before = "A\n\nB";
+    editor.setText(before);
+    type("\x1b", "g", "g", "y", "y", ...keys);
+    expect(editor.getText()).toBe(before);
+    expect(shared.register).toEqual({ text: "A", linewise: true });
+    expect(status(editor)?.mode).toBe("normal");
+    expect(editor.getCursor()).toEqual({ line: 0, col: 0 });
+  },
+);
+
+test.each(["y{", "Gy}"])(
+  "empty paragraph motion yanks preserve the previous register: %s",
+  (keys) => {
+    const { editor, type, shared } = setup();
+    editor.setText("one\n");
+    type("\x1b", "g", "g", "y", "y", ...keys);
+    expect(shared.register).toEqual({ text: "one", linewise: true });
+  },
+);
+
+test("paragraph motions keep pasted blocks opaque and refuse edits across them", () => {
+  const { editor, type, shared, notes } = setup();
+  const payload = "inside\n\n".repeat(6);
+  editor.setText("before\n\n\nafter");
+  type("\x1b", "g", "g", "j", "i", `\x1b[200~${payload}\x1b[201~`);
+  const before = editor.getText();
+  type("\x1b", "g", "g", "y", "y", "}");
+  expect(editor.getCursor()).toEqual({ line: 2, col: 0 });
+  type("g", "g", "d", "}");
+  expect(editor.getText()).toBe(before);
+  expect(shared.register).toEqual({ text: "before", linewise: true });
+  expect(notes).toHaveLength(1);
+});
+
 test("undoes and repeats a whole paragraph change", () => {
   const { editor, type, shared } = setup();
   const before = "  First\n  instruction\n\nSecond\ninstruction\n\nLast";

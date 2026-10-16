@@ -74,11 +74,17 @@ After you submit a prompt, the editor is back in INSERT mode.
 | `;` / `,` | Repeat the last `f F t T` / in reverse |
 | `%` | Jump to the matching bracket |
 | `(` / `)` | Back / forward to a sentence start |
+| `{` / `}` | Back / forward to an empty-line paragraph boundary |
+
+Use `2}` to move forward two paragraph boundaries or `d}` to delete up to the
+next boundary. Only empty lines separate paragraphs for these motions;
+space/tab-only lines do not. Consecutive empty lines form one separator run.
+These motions do not recognize Markdown, nroff macros, or section markers.
 
 **Operators and text objects**
 
 `d` deletes, `c` changes, `y` yanks, `gu` lowercases, and `gU` uppercases.
-Combine them with a motion (`dw`, `c$`, `y3j`, `d%`, `d)`), double them for whole
+Combine them with a motion (`dw`, `c$`, `y3j`, `d%`, `d)`, `d}`), double them for whole
 lines (`dd`, `cc`, `yy`, `guu`, `gUU`), or use a text object:
 
 | Object | Inner / around |
