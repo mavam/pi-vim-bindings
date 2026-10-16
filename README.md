@@ -201,8 +201,4 @@ pre-Pi cursor shape.
 
 ## 📄 License
 
-[MIT](https://github.com/mavam/pi-vim-editor/blob/main/LICENSE). The sentence
-motions are derived from Vim and also carry the
-[Vim license](https://github.com/mavam/pi-vim-editor/blob/main/licenses/Vim-LICENSE.txt);
-see
-[THIRD_PARTY_NOTICES.md](https://github.com/mavam/pi-vim-editor/blob/main/THIRD_PARTY_NOTICES.md).
+[MIT](https://github.com/mavam/pi-vim-editor/blob/main/LICENSE)

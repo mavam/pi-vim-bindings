@@ -1,39 +1,138 @@
-// SPDX-License-Identifier: MIT AND Vim
-//
-// Derived from findsent() in Vim's src/textobject.c (Vim 9.2, commit
-// 5a9a0518b153b8571ff4d55c5727b72341080cef), modified and translated to
-// TypeScript. The Vim parts are under the Vim license, included unmodified in
-// licenses/Vim-LICENSE.txt; the changes are MIT. See THIRD_PARTY_NOTICES.md.
-
 /**
- * Sentence motions `(` and `)`, following Vim's rules (`:help sentence`) and
- * its behavior, including at the edges of the buffer.
+ * Sentence motions `(` and `)`, written from Vim's documented behavior
+ * (`:help sentence`) and black-box comparisons with Vim.
  *
- * A sentence ends at `.`, `!`, or `?`, followed by any number of closing
- * `)`, `]`, `"`, or `'`, and then a space, a tab, or the end of a line. The
- * next sentence starts at the first non-blank after that, unless an empty
- * line comes first. Empty lines separate paragraphs, which also start new
- * sentences. Positions are grapheme clusters; a paste marker is one cluster
- * that is never punctuation.
+ * The prompt is flattened into a list of stops: one per grapheme cluster, one
+ * for the end of each non-empty line, and one for each empty line. A paste
+ * marker is a single stop that is never punctuation.
  */
 
 import type { Pos } from "./engine.js";
 import { clusters } from "./text.js";
 
-const ENDS = new Set(".!?");
-const CLOSERS = new Set(")]\"'");
-const BLANKS = new Set(" \t");
+type Kind = "blank" | "eol" | "empty" | "end" | "close" | "other";
+type Stop = Pos & { kind: Kind };
 
-/** A cluster on a line; `i` at the line's length is the end of the line. */
-type Cell = { line: number; i: number };
+const ENDS = new Set([".", "!", "?"]);
+const CLOSERS = new Set([")", "]", '"', "'"]);
 
-const same = (a: Cell, b: Cell) => a.line === b.line && a.i === b.i;
+function kindOf(cluster: string, marker: boolean): Kind {
+  if (marker) return "other";
+  // Vim looks at the base character, so a combining mark doesn't hide it.
+  const base = String.fromCodePoint(cluster.codePointAt(0) ?? 0);
+  if (base === " " || base === "\t") return "blank";
+  if (ENDS.has(base)) return "end";
+  if (CLOSERS.has(base)) return "close";
+  return "other";
+}
+
+function stopsOf(lines: readonly string[], pastes?: ReadonlySet<number>) {
+  const stops: Stop[] = [];
+  lines.forEach((text, line) => {
+    if (!text) {
+      stops.push({ line, col: 0, kind: "empty" });
+      return;
+    }
+    for (const span of clusters(text, pastes)) {
+      const cluster = text.slice(span.start, span.end);
+      const marker =
+        span.end - span.start > 1 && cluster.startsWith("[paste #");
+      stops.push({ line, col: span.start, kind: kindOf(cluster, marker) });
+    }
+    stops.push({ line, col: text.length, kind: "eol" });
+  });
+  return stops;
+}
+
+/** Spaces, tabs, and line ends separate sentences; empty lines don't count. */
+const white = (stop: Stop) => stop.kind === "blank" || stop.kind === "eol";
 
 /**
- * Where `count` sentences forward or backward from `cursor` start, or
- * undefined if the count runs past the buffer. As in Vim, only the last step
- * may run off the last sentence to the end of the buffer, or off the first
- * one to its start.
+ * If stop `i` ends a sentence, the stop where the next one starts: the first
+ * stop after the closers and white, or the last stop if only white follows.
+ * A sentence ends at `.`, `!`, or `?`, then closers on the same line, then
+ * white.
+ */
+function ending(stops: Stop[], i: number) {
+  if (stops[i]?.kind !== "end") return undefined;
+  let j = i + 1;
+  while (stops[j].kind === "close") j++;
+  if (!white(stops[j])) return undefined;
+  while (j < stops.length - 1 && white(stops[j])) j++;
+  return j;
+}
+
+/**
+ * The sentence starts of the prompt, as sorted stop indices. Moving forward
+ * lands on the first line of a run of empty lines, and moving backward on
+ * its last line, so each direction has its own list. `first` is where `(`
+ * stops at the start of the prompt.
+ */
+function startsOf(stops: Stop[]) {
+  // Maps the stop where a sentence starts to the stop the cursor lands on.
+  const forward = new Map<number, number>();
+  const backward = new Map<number, number>();
+  const both = (i: number) => {
+    forward.set(i, i);
+    backward.set(i, i);
+  };
+  for (let i = 0; i < stops.length; i++) {
+    if (stops[i].kind === "empty") {
+      let last = i;
+      while (stops[last + 1]?.kind === "empty") last++;
+      forward.set(i, i);
+      backward.set(last, last);
+      // The text after empty lines starts a sentence too.
+      let j = last + 1;
+      while (j < stops.length && white(stops[j])) j++;
+      if (j < stops.length && stops[j].kind !== "empty") {
+        // Blanks in front of it count as part of it.
+        forward.set(last + 1, j);
+        backward.set(last + 1, j);
+      }
+      i = last;
+    } else {
+      const j = ending(stops, i);
+      if (j !== undefined && stops[j].kind !== "empty") both(j);
+    }
+  }
+  const sorted = (map: Map<number, number>) =>
+    [...map].sort(([x], [y]) => x - y);
+  return {
+    forward: sorted(forward),
+    backward: sorted(backward),
+    first: ending(stops, 0) ?? 0,
+  };
+}
+
+/**
+ * Walks back from `i` while the stops are of the given kinds, and returns the
+ * index of the first stop that isn't, or -1. Line ends are skipped, so a line
+ * that starts with closers continues the sentence end above it.
+ */
+function back(stops: Stop[], i: number, kinds: readonly Kind[]) {
+  let j = i;
+  while (j >= 0 && (stops[j].kind === "eol" || kinds.includes(stops[j].kind)))
+    j--;
+  return j;
+}
+
+/** The stop holding `pos`, or the line end past the last cluster. */
+function indexOf(stops: Stop[], pos: Pos) {
+  let found = 0;
+  for (let i = 0; i < stops.length; i++) {
+    const stop = stops[i];
+    if (stop.line > pos.line) break;
+    if (stop.line === pos.line && stop.col > pos.col) break;
+    found = i;
+  }
+  return found;
+}
+
+/**
+ * Moves `count` sentences forward or backward from `cursor`. Returns the
+ * position to move to, which may be the end of the last line, or undefined if
+ * the motion fails because it runs past the start or end of the prompt.
  */
 export function sentence(
   lines: readonly string[],
@@ -42,134 +141,150 @@ export function sentence(
   count: number,
   pastes?: ReadonlySet<number>,
 ): Pos | undefined {
-  const spans = lines.map((text) => clusters(text, pastes));
-  const chars = lines.map((text, n) =>
-    spans[n].map((s) =>
-      // Only a cluster's first character counts; a paste marker is opaque.
-      s.end - s.start > 1 && text.startsWith("[paste #", s.start)
-        ? ""
-        : String.fromCodePoint(text.codePointAt(s.start) ?? 0),
-    ),
-  );
-  const last = lines.length - 1;
-  const empty = (line: number) => chars[line].length === 0;
-  const charAt = (c: Cell): string | undefined => chars[c.line][c.i];
-  const top: Cell = { line: 0, i: 0 };
-  const bottom: Cell = { line: last, i: chars[last].length };
-
-  /** The cluster after `c`, across line ends; empty lines count. */
-  const after = (c: Cell): Cell | undefined => {
-    if (c.i + 1 < chars[c.line].length) return { line: c.line, i: c.i + 1 };
-    return c.line < last ? { line: c.line + 1, i: 0 } : undefined;
-  };
-  /** The cluster before `c`, across line ends; empty lines count. */
-  const before = (c: Cell): Cell | undefined => {
-    if (c.i > 0) return { line: c.line, i: c.i - 1 };
-    if (c.line === 0) return undefined;
-    return { line: c.line - 1, i: Math.max(0, chars[c.line - 1].length - 1) };
-  };
-
-  /** The first non-blank from a cell on, stopping at an empty line. */
-  const nonBlank = (c: Cell): Cell => {
-    let { line, i } = c;
-    for (;;) {
-      while (i < chars[line].length && BLANKS.has(chars[line][i])) i++;
-      if (i < chars[line].length || line === last) return { line, i };
-      line++;
-      i = 0;
-      if (empty(line)) return { line, i };
-    }
-  };
-
-  /** If a sentence ends at `c`, where the next one starts. */
-  const endsAt = (c: Cell): Cell | undefined => {
-    const row = chars[c.line];
-    if (!ENDS.has(row[c.i])) return undefined;
-    let j = c.i + 1;
-    while (j < row.length && CLOSERS.has(row[j])) j++;
-    if (j < row.length && !BLANKS.has(row[j])) return undefined;
-    return nonBlank({ line: c.line, i: j });
-  };
-
-  const punctuation = (c?: string) =>
-    c !== undefined && (ENDS.has(c) || CLOSERS.has(c));
-  /**
-   * Blanks, one sentence end, and closers after it just before a sentence
-   * still belong to the sentence they end, so a search starts in front of
-   * them. Moving forward, an empty line stops this.
-   */
-  const backOver = (c: Cell): Cell => {
-    let dot = false;
-    for (;;) {
-      const char = charAt(c);
-      if (char === undefined || !(BLANKS.has(char) || punctuation(char)))
-        return c;
-      const prior = before(c);
-      if (!prior || (forward && empty(prior.line)) || dot) return c;
-      dot = ENDS.has(char);
-      if (CLOSERS.has(char) && !punctuation(charAt(prior))) return c;
-      c = prior;
-    }
-  };
-
-  /** One step from `from`; undefined when it runs off the buffer. */
-  const step = (from: Cell): Cell | undefined => {
-    if (forward && empty(from.line)) {
-      // Past the empty lines, to where the next paragraph starts.
-      let line = from.line;
-      while (line < last && empty(line)) line++;
-      return empty(line) ? { line, i: 0 } : nonBlank({ line, i: 0 });
-    }
-    let c: Cell = from;
-    if (!forward) {
-      // Look before the cursor, or before the empty lines it's on.
-      if (empty(c.line)) {
-        while (c.line > 0 && empty(c.line)) c = before(c) as Cell;
-      } else c = before(c) ?? c;
-    }
-    c = backOver(c);
-    const home = c.line;
-    for (;;) {
-      if (empty(c.line))
-        return forward || c.line === home
-          ? { line: c.line, i: 0 }
-          : nonBlank({ line: c.line + 1, i: 0 });
-      const start = endsAt(c);
-      if (start) return start;
-      const next = forward ? after(c) : before(c);
-      if (!next) return undefined;
-      c = next;
-    }
-  };
-
-  const row = spans[cursor.line];
-  let i = row.findIndex((s) => cursor.col < s.end);
-  if (i === -1) i = Math.max(0, row.length - 1);
-  let pos: Cell = { line: cursor.line, i };
-  for (let k = 0; k < count; ) {
-    const final = k === count - 1;
-    const next = step(pos);
-    if (!next) {
-      if (!final) return undefined;
-      pos = forward ? bottom : top;
-      break;
-    }
-    if (same(next, pos)) {
-      // Stuck at a sentence start: move one cluster and look again.
-      const moved = forward ? after(pos) : before(pos);
-      if (!moved) {
-        if (!final) return undefined;
-        pos = forward ? bottom : pos;
-        break;
-      }
-      pos = moved;
+  const stops = stopsOf(lines, pastes);
+  const starts = startsOf(stops);
+  let i = indexOf(stops, cursor);
+  // A sentence boundary at EOF (or an empty line at BOF) and the buffer
+  // edge consume separate counts, even though their positions coincide.
+  let terminalBoundary = false;
+  let backwardBoundary = i === 0 && stops[i].kind === "empty";
+  for (let k = 0; k < count; k++) {
+    if (forward && i === stops.length - 1) {
+      if (k > 0 && !terminalBoundary) return undefined;
+      terminalBoundary = false;
       continue;
     }
-    pos = next;
-    k++;
+    const step = forward ? next(stops, starts.forward, i) : undefined;
+    const to = step?.to ?? previous(stops, starts.backward, starts.first, i);
+    terminalBoundary = step?.boundary ?? false;
+    // A fresh motion may stay at BOF; further counts need an unconsumed
+    // empty-line boundary. Some leading punctuation instead moves forward.
+    if (!forward && i === 0 && to === 0) {
+      if (k > 0 && !backwardBoundary) return undefined;
+      backwardBoundary = false;
+    } else if (!forward) {
+      backwardBoundary = to === 0 && stops[to].kind === "empty";
+    }
+    i = to;
   }
+  const { line, col } = stops[i];
+  return { line, col };
+}
+
+type Starts = [at: number, land: number][];
+
+function next(stops: Stop[], starts: Starts, i: number) {
+  let from = i;
+  if (stops[i].kind === "empty") {
+    // From inside a run of empty lines, the run counts as one stop.
+    while (stops[from + 1]?.kind === "empty") from++;
+  } else {
+    // In the closers and blanks after a sentence's end, `)` goes to the start
+    // that follows that end, even if that is where the cursor already is.
+    from = continued(stops, i) ?? endBefore(stops, i) ?? i;
+  }
+  const start = starts.find(([at]) => at > from);
   return {
-    line: pos.line,
-    col: spans[pos.line][pos.i]?.start ?? lines[pos.line].length,
+    to: start?.[1] ?? stops.length - 1,
+    boundary: start !== undefined || stops[i].kind === "empty",
   };
+}
+
+/**
+ * The `.`, `!`, or `?` ending a sentence, if `i` is on it or on the closers
+ * and white after it.
+ */
+function endBefore(stops: Stop[], i: number) {
+  let j = white(stops[i]) ? back(stops, i, ["blank"]) : i;
+  while (
+    stops[j]?.kind === "close" &&
+    stops[j - 1]?.kind !== "eol" &&
+    stops[j - 1]?.kind !== "empty"
+  )
+    j--;
+  return ending(stops, j) !== undefined ? j : undefined;
+}
+
+/**
+ * Vim keeps a sentence end going onto the next line when that line starts
+ * with one more `.`, `!`, `?`, or closer (the lead), followed by closers or
+ * blanks. For the cursor on that continuation, returns the end on the line
+ * above. A lead alone on its line before empty lines continues into them.
+ */
+function continued(stops: Stop[], i: number) {
+  const lineStart = (k: number) => {
+    while (k > 0 && stops[k - 1].line === stops[k].line) k--;
+    return k;
+  };
+  // Whether the stops from `from` through `i` are closers, then blanks.
+  const trailing = (from: number) => {
+    let j = from;
+    while (j <= i && (stops[j].kind === "close" || stops[j].kind === "eol"))
+      j++;
+    while (j <= i && (stops[j].kind === "blank" || stops[j].kind === "eol"))
+      j++;
+    return j > i;
+  };
+  const punctuation = (k: number) =>
+    stops[k]?.kind === "end" || stops[k]?.kind === "close";
+  // Find the earliest lead whose closers and blanks extend to the cursor,
+  // including continuations spanning several lines.
+  let lead = lineStart(i);
+  let found: number | undefined;
+  while (lead >= 0) {
+    const end =
+      punctuation(lead) && trailing(lead + 1) ? endAbove(lead) : undefined;
+    if (end !== undefined) found = end;
+    if (lead === 0 || (end === undefined && !trailing(lead))) break;
+    lead = lineStart(lead - 1);
+  }
+  return found;
+
+  // For a lead, the end on the line above it that it continues.
+  function endAbove(lead: number) {
+    if (stops[lead - 1]?.kind !== "eol") return undefined;
+    let end = lead - 2;
+    while (stops[end]?.kind === "close" && end > lineStart(lead - 1)) end--;
+    if (stops[end]?.kind !== "end") return undefined;
+    if (stops[lead].kind === "end" && end !== lead - 2) return undefined;
+    let after = lead + 1;
+    while (stops[after]?.kind === "eol") after++;
+    const next = stops[after]?.kind;
+    if (next === "close" || next === "blank") return end;
+    if (next === "empty" && stops[lead + 1].kind === "eol") {
+      while (stops[after + 1]?.kind === "empty") after++;
+      return after;
+    }
+    // A bare terminator at the start of the next line isn't a new end
+    // when moving from that lead: skip the start it would otherwise create.
+    if (i === lead && stops[lead].kind === "end") {
+      if (
+        stops[after]?.kind === "end" &&
+        (stops[after + 1]?.kind === "blank" ||
+          stops[after + 1]?.kind === "close")
+      )
+        return after - 1;
+      return ending(stops, lead);
+    }
+    return undefined;
+  }
+}
+
+function previous(stops: Stop[], starts: Starts, first: number, i: number) {
+  let before = i;
+  // From inside a run of empty lines, the run counts as one stop.
+  while (stops[before].kind === "empty" && stops[before - 1]?.kind === "empty")
+    before--;
+  // Right after a sentence's end, `(` goes to that sentence's start. Right
+  // after punctuation that follows empty lines, it goes to the empty lines.
+  const blanks = back(stops, before - 1, ["blank"]);
+  const end = back(stops, blanks, ["close"]);
+  let limit = before - 1;
+  if (stops[end]?.kind === "end") {
+    if (stops[end - 1]?.kind === "empty") limit = end - 1;
+    else if (ending(stops, end) !== undefined) limit = end;
+  }
+  let found = first;
+  for (const [, land] of starts) if (land <= limit) found = land;
+  return found;
 }

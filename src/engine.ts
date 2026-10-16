@@ -171,7 +171,12 @@ export function selection(state: State, buf: Buffer): Range | undefined {
   const span = clusters(buf.lines[to.line], buf.pastes).find(
     (s) => s.start === to.col,
   );
-  const end = span ? { line: to.line, col: span.end } : to;
+  // The character selected on an empty line is its newline.
+  const end = span
+    ? { line: to.line, col: span.end }
+    : to.line < buf.lines.length - 1
+      ? { line: to.line + 1, col: 0 }
+      : to;
   return { from, to: end, linewise: false };
 }
 
@@ -936,7 +941,7 @@ function transform(
   buf: Buffer,
 ): Effect[] {
   const effects: Effect[] = [];
-  if (!spans.some((s) => s.end > s.start)) return [];
+  if (!spans.length) return [];
   // Vim: the cursor goes to the start, even on an empty line.
   const first = spans[0];
   for (const s of spans) {
@@ -1544,16 +1549,41 @@ function operate(op: Op, range: Range, buf: Buffer, visual = false): Effect[] {
       linewise: true,
     };
   const { from, to, linewise } = range;
-  if (!linewise && from.line === to.line && from.col === to.col)
+  if (!linewise && from.line === to.line && from.col === to.col) {
+    if (op === "gu" || op === "gU") {
+      const span = clusters(lines[from.line], buf.pastes).find(
+        (s) => s.start === from.col,
+      );
+      return span
+        ? transform(
+            [{ line: from.line, start: span.start, end: span.end, eol: false }],
+            CASES[op[1]],
+            buf,
+          )
+        : [];
+    }
     return op === "c"
       ? [
           { kind: "move", to: from },
           { kind: "mode", mode: "insert" },
         ]
       : [];
+  }
   if (touches(buf, range)) return [{ kind: "refuse" }];
-  if (op === "gu" || op === "gU")
-    return transform(rangeSpans(range, buf), CASES[op[1]], buf);
+  if (op === "gu" || op === "gU") {
+    const effects = transform(rangeSpans(range, buf), CASES[op[1]], buf);
+    if (!linewise || effects[0]?.kind === "refuse") return effects;
+    return [
+      ...effects,
+      {
+        kind: "move",
+        to: clamp(apply(buf, effects), {
+          line: from.line,
+          col: buf.cursor.col,
+        }),
+      },
+    ];
+  }
   const yank: Effect = {
     kind: "yank",
     register: { text: textOf(lines, range), linewise },
@@ -1602,7 +1632,10 @@ function operate(op: Op, range: Range, buf: Buffer, visual = false): Effect[] {
   const after = splice(lines, start, stop, "");
   const cursor = clamp(
     { ...buf, lines: after },
-    { line, col: firstNonBlank(after[line]) },
+    {
+      line,
+      col: blank(after[line]) ? after[line].length : firstNonBlank(after[line]),
+    },
   );
   return [yank, { kind: "replace", from: start, to: stop, text: "", cursor }];
 }

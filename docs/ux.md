@@ -267,8 +267,9 @@ Deliberate, to keep the scope small:
 - **Sentences:** only empty lines end paragraphs; nroff macros (`.PP`, `.SH`,
   …) from `'paragraphs'` and `'sections'` and form feeds don't, and the
   `J` flag of `'cpoptions'` (two spaces after a sentence) isn't supported.
-- **Visual mode:** a charwise selection doesn't include line breaks, so `v$d`
-  keeps the newline. Block `p` / `P` do nothing. Text that changes from
+- **Visual mode:** a charwise selection ending on a non-empty line keeps its
+  newline, so `v$d` keeps it too. Selecting an empty line includes its newline.
+  Block `p` / `P` do nothing. Text that changes from
   outside Vim (Pi's history, another extension, `Ctrl-H`) ends Visual mode.
 - **Words and case:** CJK characters are word characters like letters; `~`,
   `gu`, and `gU` use JavaScript's Unicode case mapping.

@@ -6,9 +6,7 @@
   "files": [
     "src",
     "README.md",
-    "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
-    "licenses"
+    "LICENSE"
   ],
   "keywords": [
     "pi-package",
@@ -18,7 +16,7 @@
     "modal-editing"
   ],
   "author": "Matthias Vallentin",
-  "license": "MIT AND Vim",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mavam/pi-vim-editor.git"

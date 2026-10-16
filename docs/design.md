@@ -43,9 +43,6 @@ From auditing `lajarre/pi-vim` v0.14.2 and four alternatives
 
 pi-vim's pure helpers (`motions.ts`, `text-objects.ts`) are MIT. Port pieces
 with attribution where they fit. `@thazhemadam/*` is LGPL: ideas only.
-`src/sentence.ts` is derived from Vim's `findsent()` and also carries the Vim
-license; see `THIRD_PARTY_NOTICES.md`. Keep that notice and
-`licenses/Vim-LICENSE.txt` in the package when changing it.
 
 ## 3. Composition model
 
@@ -133,7 +130,7 @@ src/
 ├── attach.ts     # instance patching: input routing (§5), mode label (§7)
 ├── status.ts     # read-only status for other extensions (§7.1)
 ├── engine.ts     # PURE: key → effects; parser, motions, objects
-├── sentence.ts   # PURE: sentence motions `(` `)`, derived from Vim (MIT AND Vim)
+├── sentence.ts   # PURE: sentence motions `(` `)`
 ├── text.ts       # PURE: graphemes, word classes, paste-marker spans
 └── port.ts       # editor capability adapter (§6)
 ```

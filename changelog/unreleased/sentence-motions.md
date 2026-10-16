@@ -23,7 +23,3 @@ A sentence ends at `.`, `!`, or `?`, optionally followed by closing `)`,
 `]`, `"`, or `'`, and then a space, a tab, or the end of a line. Empty lines
 separate sentences too. Pasted blocks count as a single character, and edits
 that would cut into one are refused.
-
-The sentence motion code is derived from Vim, so the package now also includes
-the Vim license for that part. Its license is `MIT AND Vim`; see
-`THIRD_PARTY_NOTICES.md`.
