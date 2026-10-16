@@ -46,8 +46,8 @@ shadowed by Vim.
 
 Counts: `{n}` works on the motions `h j k l w b e W B E f F t T ; , $ ( )`, on
 `{n}G` / `{n}gg`, `ge` / `gE`, on operators (`2dd`, `3cw`, `y3j`; `2d3w`
-deletes six words), on word and sentence objects (`2diw`, `d3aW`, `d2as`),
-and on `x`, `X`, `s`,
+deletes six words), on word, sentence, and paragraph objects (`2diw`, `d3aW`,
+`d2as`, `d2ap`), and on `x`, `X`, `s`,
 `S`, `C`, `D`, `J`, `~`, `r`, `p`, `P`, and `.`. Not on quote or bracket
 objects or `%`.
 
@@ -111,6 +111,7 @@ sentence start deletes the sentence and the blanks after it.
 | Doubled = whole line | `dd`, `cc`, `yy`, `guu`, `gUU` |
 | Word / WORD object | `diw`, `caw`, `ciW`, `daW` |
 | Sentence object, across lines | `dis`, `cas`, `yis`, `guas`, `gUis` |
+| Paragraph object, whole lines | `dip`, `cap`, `yip`, `guap`, `gUip` |
 | Quote object, same line | `ci"`, `da'`, `` ci` ``, `` da` `` |
 | Bracket object, same line | `ci(`, `da[`, `yi{`; the closing bracket works too (`ci)`) |
 
@@ -138,6 +139,32 @@ current sentence even when the cursor is in its middle:
   NORMAL operators use Vim's exclusive-line rules: on `One.\nTwo.`, `yis` on
   the first sentence yanks a whole line. Visual `visy` instead yanks `One.`
   characterwise, without the newline.
+
+Paragraph objects select whole lines of prose, including indentation:
+
+- `ip` selects the current paragraph. Empty lines and lines containing only
+  spaces or tabs separate paragraphs. On a separator, `ip` selects its entire
+  blank-line run. Other Unicode whitespace does not make a separator line.
+- `ap` includes the entire trailing blank-line run when available; otherwise
+  it includes the leading run. From a separator run, it selects that run and
+  the following paragraph. On terminal blank lines with no following paragraph,
+  `ap` does nothing.
+- `ip` counts text and separator runs separately: `d2ip` deletes a paragraph
+  and its following blanks; `d3ip` includes the next paragraph. `ap` counts
+  paragraphs with separators: `d2ap` deletes two. If the counted range ends
+  without trailing blanks, it takes the leading blanks instead. Operator and
+  object counts multiply (`2d3ap` equals `d6ap`). With an operator, a count past
+  the available runs or paragraphs does nothing instead of selecting a partial
+  range.
+- `cip` rewrites an instruction paragraph at column zero, without preserving
+  its indentation. The deleted or yanked text is linewise; `p` puts it as whole
+  lines. `cip` also works in an empty prompt; `ap` there does nothing.
+
+These object-specific whitespace rules differ from Vim’s paragraph motions and
+from the sentence boundaries above. Paragraph navigation (`{` / `}`) is not
+supported. Paragraph objects do not parse Markdown headings, lists, or fences,
+nroff macros, or form feeds. Pasted blocks stay opaque, and operators touching
+one are refused.
 
 ### Single-key edits
 
@@ -181,6 +208,7 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 | `o` | Jump to the other end of the selection |
 | `O` | Block: jump to the other corner on the same line; otherwise like `o` |
 | `iw` `aw` `iW` `aW` `is` `as` `i"` `` i` `` `` a` `` `a(` … | Select a text object (charwise) |
+| `ip` `ap` | Select or extend a paragraph object; see below |
 | `d` / `x` | Delete the selection |
 | `c` / `s` | Change the selection: delete, then INSERT |
 | `y` | Yank the selection; also goes to the system clipboard |
@@ -194,6 +222,16 @@ with counts. Keys that stay with Pi in NORMAL mode (§3) stay with Pi here too.
 Sentence objects take counts in Visual mode (`v2as`). Repeating `is` or `as`
 extends an existing selection in the cursor's direction. They switch linewise
 and block selections to characterwise, including when the sentence spans lines.
+
+Paragraph objects take counts too (`v2ip`, `v2ap`). A fresh `vip` or `vap`
+selects whole lines, even from a single-line character or block selection.
+Repeating the object extends in the cursor’s direction: `vipip` adds the next
+separator run, and `vipap` adds it and the next paragraph. Use `o` to extend
+backward. Existing multiline selections retain their kind and fixed anchor;
+linewise selections stay linewise. A single selected line first expands to its
+whole paragraph, unless it already covers that paragraph. Counts past the
+buffer boundary extend existing multiline selections as far as possible;
+otherwise, an unavailable object leaves the selection unchanged.
 
 Block mode adds:
 
@@ -281,8 +319,9 @@ How `"+p` treats the clipboard:
 Deliberate, to keep the scope small:
 
 - **Counts:** `2dd` works, `d2d` doesn't. A count on an operator needs a
-  motion or object that takes counts (`d3w`, `2y3j`, `2diw`, `d2as`). Sentence
-  object counts multiply like other operator counts (`2d3as` means `d6as`).
+  motion or object that takes counts (`d3w`, `2y3j`, `2diw`, `d2as`, `d2ap`).
+  Sentence and paragraph object counts multiply like other operator counts
+  (`2d3as` means `d6as`, and `2d3ap` means `d6ap`).
   No counts on quote or bracket objects or `%`. `{n}dd` on the last line does nothing, as
   in Vim.
 - **`.` after Pi's own editing keys:** `.` repeats what an INSERT session
@@ -292,8 +331,8 @@ Deliberate, to keep the scope small:
 - **`j` / `k`** keep the display column of the line you leave, without Vim's
   sticky column.
 - **Word, quote, and bracket objects** stay on the current line; sentence
-  objects can span lines. Bracket objects need the cursor inside the brackets,
-  and `a"` doesn't take the surrounding whitespace.
+  and paragraph objects can span lines. Bracket objects need the cursor inside
+  the brackets, and `a"` doesn't take the surrounding whitespace.
 - **`%`** also matches brackets inside quotes.
 - **Sentences:** only empty lines end paragraphs; nroff macros (`.PP`, `.SH`,
   …) from `'paragraphs'` and `'sections'` and form feeds don't, and the
@@ -326,7 +365,8 @@ Candidates for later, roughly by demand:
 
 Not planned: `jj`/`jk` escape (pi-vim #45).
 
-Out of scope: search, `{ }`, named registers, macros, marks, `{n}R`, `gR`, Ex commands
+Out of scope: search, paragraph motions (`{` / `}`), named registers, macros,
+marks, `{n}R`, `gR`, Ex commands
 beyond quitting, remapping, history on `j`/`k`, `>`/`<` with
 motions, a configurable indent width.
 

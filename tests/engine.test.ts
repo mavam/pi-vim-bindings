@@ -403,3 +403,65 @@ test.each([
 ])("sentence object: %j + %j → %j", (before, keys, after) => {
   expect(run(before, keys)).toBe(after);
 });
+
+// Paragraph objects are whole-line runs; their blanks include spaces and tabs.
+test.each([
+  ["before\n\nal|pha\nbeta\n\nafter", "dip", "before\n\n|\nafter"],
+  ["before\n\nal|pha\nbeta\n\nafter", "dap", "before\n\n|after"],
+  ["A\n\n|B", "dap", "|A"],
+  ["|A\nB", "dap", "|"],
+  ["A\n|\n \n\t\nB", "dip", "A\n|B"],
+  ["A\n|\n \n\t\nB\n\nC", "dap", "A\n|\nC"],
+  ["|A\n \nB", "dip", "| \nB"],
+  ["|A\n\t\nB", "dap", "|B"],
+  ["|A\n \t\nB", "dap", "|B"],
+  ["|A\n\u00a0\nB", "dip", "|"],
+  ["|A\n\u2002\nB", "dip", "|"],
+  ["A\n|\n", "dap", "A\n|\n"],
+  ["|", "dap", "|"],
+  ["|", "cipX<esc>", "|X"],
+  ["A\n|\nB", "cipX<esc>", "A\n|X\nB"],
+  ["A\n\n  al|pha\n  beta\n\nB", "cipX<esc>", "A\n\n|X\n\nB"],
+  ["|A\n\n\nB\n\nC", "d2ip", "|B\n\nC"],
+  ["|A\n\n\nB\n\nC", "d3ip", "|\nC"],
+  ["|A\n\nB\n\nC", "2dap", "|C"],
+  ["A\n\n|B\n\nC", "d2ap", "|A"],
+  ["A\n\n|B", "d2ip", "A\n\n|B"],
+  ["|A\n\nB", "d3ap", "|A\n\nB"],
+  ["|A\n\nB\n\nC\n\nD\n\nE\n\nF\n\nG", "2d3ap", "|G"],
+  ["|A\n\nB\n\nC\n\nD", "3d2ip", "|D"],
+  ["|one\ntwo\n\nthree", "gUip", "|ONE\nTWO\n\nthree"],
+  ["|ONE\n\nTWO\n\nTHREE", "gu2ap", "|one\n\ntwo\n\nTHREE"],
+  ["|one\n\ntwo\n\nthree", "2gUap", "|ONE\n\nTWO\n\nthree"],
+  ["e\u0301 |中文\n👨‍👩‍👧‍👦\n\nNext", "cip新<esc>", "|新\n\nNext"],
+  // Linewise puts keep the paragraph's rows, rather than joining its text.
+  ["|A\nB\n\nC", "yipGP", "A\nB\n\n|A\nB\nC"],
+  ["|A\nB\n\nC", "vipd", "|\nC"],
+  ["|A\nB\n\nC", "vapd", "|C"],
+  ["|A\nB\n\nC", "Vipd", "|\nC"],
+  ["|A\nB\n\nC", "<C-v>ipd", "|\nC"],
+  ["|AA\naaa\n\nB", "vlipd", "|\nB"],
+  ["|AA\naaa\n\nB", "vjipd", "|B"],
+  ["|A\na\n\nB\nb\n\nC", "vipipd", "|B\nb\n\nC"],
+  ["|A\na\n\nB\nb\n\nC", "vipapd", "|\nC"],
+  ["A\na\n\n|B\nb\n\nC", "vipoipd", "A\na\n|\nC"],
+  ["A\na\n\n|B\nb\n\nC", "vipoapd", "|\nC"],
+  ["|A\n\nB", "vipipd", "|B"],
+  ["|A\n\nB", "Vipd", "|B"],
+  ["|A\n\nB\n\nC", "v2ipd", "|B\n\nC"],
+  ["|A\n\nB\n\nC", "v2apd", "|C"],
+])("paragraph object: %j + %j → %j", (before, keys, after) => {
+  expect(run(before, keys)).toBe(after);
+});
+
+test.each(["dip", "cap", "yip", "guip", "gUap", "vipd", "vapy"])(
+  "refuses paragraph objects touching paste markers: %s",
+  (keys) => {
+    expect(run(`A\n\n|text\n${paste}\n\nB`, keys)).toBe("refused");
+  },
+);
+
+test("paragraph counts refuse adjacent paste content, not untouched paragraphs", () => {
+  expect(run(`A\n|\n${paste}\n\nB`, "dap")).toBe("refused");
+  expect(run(`|A\n\n${paste}`, "dip")).toBe(`|\n${paste}`);
+});

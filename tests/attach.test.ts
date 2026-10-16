@@ -161,6 +161,103 @@ test.each([
   },
 );
 
+test.each([
+  ["alpha\nbeta\n\nafter", "yip", "alpha\nbeta", true],
+  ["alpha\nbeta\n\nafter", "yap", "alpha\nbeta\n", true],
+  ["alpha\n \n    \nafter", "y2ip", "alpha\n \n    ", true],
+  ["alpha\n\nbeta\n\ngamma", "y3ip", "alpha\n\nbeta", true],
+  ["", "yip", "", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "vipy", "AA\naaa", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "vapy", "AA\naaa\n", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "vipipy", "AA\naaa\n", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "vipapy", "AA\naaa\n\nBB\nbbb", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "3jvipoipy", "\nBB\nbbb", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "3jvipoapy", "AA\naaa\n\nBB\nbbb", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "vjipy", "AA\naaa\n\n", false],
+  ["abcd\nefgh\nijkl\n\nmnop", "2lvjipy", "cd\nefgh\ni", false],
+  ["abcd\nefgh\nijkl\n\nmnop", "2lVjipy", "abcd\nefgh\nijkl", true],
+  ["abcd\nefgh\nijkl\n\nmnop", "jVipy", "abcd\nefgh\nijkl", true],
+  ["abcd\nefgh\nijkl\n\nmnop", "2jVipy", "abcd\nefgh\nijkl", true],
+  ["A\n\nBB\nbb\n\nCC\ncc", "2jV2apy", "\nBB\nbb\n\nCC\ncc", true],
+  ["A\n\nBB\nbb\n\nCC\ncc", "2jvip2apy", "BB\nbb\n\nCC\ncc", true],
+  ["A\n\nBB\nbb\n\nCC\ncc", "2jvap2ipy", "BB\nbb\n\nCC\ncc", true],
+  ["A\n\nBB\nbb\n\nCC\ncc", "2jvipo2apy", "A\n\nBB\nbb", true],
+  ["abcd\nefgh\n\nmnop", "lvipvy", "bcd\ne", false],
+  ["A\n\nB", "V3ipy", "A\n\nB", true],
+  ["A\n\nB", "V4ipy", "A", true],
+  ["A\n\nB", "V2apy", "A\n\nB", true],
+  ["A\n\nB", "V3apy", "A", true],
+  ["A\n\nB", "GVapy", "\nB", true],
+  ["AA\n\nBB\n\nCC", "2jV2apy", "\nBB\n\nCC", true],
+  ["AA\naaa\n\nBB\nbbb\n\nCC", "3jvkipy", "AA\naaa\n\nB", false],
+  ["AA\naaa\n\nBB", "\x16ipy", "AA\naaa", true],
+] as const)(
+  "copies paragraph objects with their selection shape: %j + %j",
+  (before, keys, text, linewise) => {
+    const { editor, type, copies, shared } = setup();
+    editor.setText(before);
+    type("\x1b", "g", "g", "0", ...keys);
+    expect(editor.getText()).toBe(before);
+    expect(copies).toEqual([text]);
+    expect(shared.register).toEqual({ text, linewise });
+  },
+);
+
+test("undoes and repeats a whole paragraph change", () => {
+  const { editor, type, shared } = setup();
+  const before = "  First\n  instruction\n\nSecond\ninstruction\n\nLast";
+  editor.setText(before);
+  type("\x1b", "g", "g", "c", "i", "p", ..."New", "\x1b");
+  expect(editor.getText()).toBe("New\n\nSecond\ninstruction\n\nLast");
+  expect(shared.register).toEqual({
+    text: "  First\n  instruction",
+    linewise: true,
+  });
+  type("2", "j", ".");
+  expect(editor.getText()).toBe("New\n\nNew\n\nLast");
+  type("u");
+  expect(editor.getText()).toBe("New\n\nSecond\ninstruction\n\nLast");
+  type("u");
+  expect(editor.getText()).toBe(before);
+});
+
+test("repeats a Visual paragraph delete by its linewise extent", () => {
+  const { editor, type } = setup();
+  editor.setText("A\na\n\nB\nb\n\nC");
+  type("\x1b", "g", "g", "v", "a", "p");
+  expect(status(editor)?.mode).toBe("visual-line");
+  expect(editor.render(40).some((line) => line.includes("<VISUAL LINE>"))).toBe(
+    true,
+  );
+  type("d", ".");
+  expect(editor.getText()).toBe("C");
+  type("u");
+  expect(editor.getText()).toBe("B\nb\n\nC");
+  type("u");
+  expect(editor.getText()).toBe("A\na\n\nB\nb\n\nC");
+});
+
+test.each(["y2ip", "y2ap", "d2ip", "c2ap"])(
+  "paragraph count overruns leave the buffer and register unchanged: %s",
+  (keys) => {
+    const { editor, type, shared } = setup();
+    editor.setText("A\n\nB");
+    type("\x1b", "g", "g", "y", "i", "p", "G", ...keys);
+    expect(editor.getText()).toBe("A\n\nB");
+    expect(shared.register).toEqual({ text: "A", linewise: true });
+    expect(status(editor)?.mode).toBe("normal");
+  },
+);
+
+test("a failed Visual paragraph extension preserves the selection", () => {
+  const { editor, type, shared } = setup();
+  editor.setText("A\n\nB\nb");
+  type("\x1b", "G", "v", "i", "p", "i", "p");
+  expect(status(editor)?.mode).toBe("visual-line");
+  type("y");
+  expect(shared.register).toEqual({ text: "B\nb", linewise: true });
+});
+
 test("highlights the Visual selection", () => {
   const { editor, type } = setup();
   type(..."foo bar", "\x1b", "0", "v", "e");
@@ -343,6 +440,7 @@ test.each([
   ["|A. B. C. D. E. F. G.", "2d3is2.", "E. F. G."],
   ["|A. B. C. D. E.", "d2as2.", "E."],
   ["|A. B. C. D. E. F. G.", "2das.", "E. F. G."],
+  ["|A\n\nB\n\nC\n\nD\n\nE", "2dap1.", "D\n\nE"],
   ["|One\nmore.\nTwo\nmore.\nThree.", "visdj0.", "\n\nThree."],
   ["|abcd xyz", "i<Del>X<Esc>w2.", "Xbcd XXz"],
   ["|one\ntwo\nthree\nfour\nfive", "Sx<Esc>j2.", "x\nx\nfour\nfive"],
